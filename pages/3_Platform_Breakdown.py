@@ -2,7 +2,7 @@ import streamlit as st
 
 st.set_page_config(page_title="Platform Breakdown", page_icon="📱", layout="wide")
 
-from utils.sidebar import render_sidebar, require_data
+from utils.sidebar import render_sidebar, require_data, apply_theme
 from utils.processors import (
     apply_filters,
     get_platform_summary,
@@ -17,6 +17,7 @@ from utils.charts import (
 )
 
 filters = render_sidebar()
+apply_theme()
 require_data()
 
 st.title("📱 Platform Breakdown")
