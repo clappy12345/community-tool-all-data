@@ -12,6 +12,7 @@ from utils.processors import (
     format_number,
 )
 from utils.charts import daily_engagement_timeline_with_hover, platform_bar, CHART_CONFIG
+from utils.theme import render_kpi_card, render_post_card, render_section_header
 
 filters = render_sidebar()
 apply_theme()
@@ -23,29 +24,37 @@ st.divider()
 
 pp = apply_filters(st.session_state["post_performance"], filters)
 
-# --- Total Engagement Metrics ---
 exclude_types = ["Story", "@Reply", "'@Reply"]
 pp_filtered = pp[~pp["Post Type"].isin(exclude_types)]
 k1, k2, k3, k4, k5 = st.columns(5)
-k1.metric("Total Impressions", format_number(pp_filtered["Impressions"].sum()))
-k2.metric("Total Engagements", format_number(pp_filtered["Engagements"].sum()))
-k3.metric("Video Views", format_number(pp_filtered["Video Views"].sum()))
-k4.metric("Reactions", format_number(pp_filtered["Reactions"].sum()))
-k5.metric("Reach", format_number(pp_filtered["Reach"].sum()))
+with k1:
+    render_kpi_card("Total Impressions", format_number(pp_filtered["Impressions"].sum()))
+with k2:
+    render_kpi_card("Total Engagements", format_number(pp_filtered["Engagements"].sum()))
+with k3:
+    render_kpi_card("Video Views", format_number(pp_filtered["Video Views"].sum()))
+with k4:
+    render_kpi_card("Reactions", format_number(pp_filtered["Reactions"].sum()))
+with k5:
+    render_kpi_card("Reach", format_number(pp_filtered["Reach"].sum()))
 
 k6, k7, k8, k9, k10 = st.columns(5)
-k6.metric("Comments", format_number(pp_filtered["Comments"].sum()))
-k7.metric("Shares", format_number(pp_filtered["Shares"].sum()))
-k8.metric("Link Clicks", format_number(pp_filtered["Post Link Clicks"].sum()))
-k9.metric("Total Posts", format_number(len(pp_filtered)))
-avg_eng = pp_filtered["Engagements"].mean() if len(pp_filtered) > 0 else 0
-k10.metric("Avg Eng / Post", format_number(int(avg_eng)))
+with k6:
+    render_kpi_card("Comments", format_number(pp_filtered["Comments"].sum()))
+with k7:
+    render_kpi_card("Shares", format_number(pp_filtered["Shares"].sum()))
+with k8:
+    render_kpi_card("Link Clicks", format_number(pp_filtered["Post Link Clicks"].sum()))
+with k9:
+    render_kpi_card("Total Posts", format_number(len(pp_filtered)))
+with k10:
+    avg_eng = pp_filtered["Engagements"].mean() if len(pp_filtered) > 0 else 0
+    render_kpi_card("Avg Eng / Post", format_number(int(avg_eng)))
 
 st.divider()
 
 # --- Daily Impressions Timeline ---
-st.markdown("### Daily Impressions Timeline")
-st.caption("Click a point to see what was posted that day.")
+render_section_header("Daily Impressions Timeline", "Click a point to see what was posted that day.")
 daily = get_daily_post_engagement(pp)
 fig = daily_engagement_timeline_with_hover(daily)
 event = st.plotly_chart(
@@ -93,7 +102,7 @@ if selected_date is not None:
 st.divider()
 
 # --- Network Performance ---
-st.markdown("### Performance by Platform")
+render_section_header("Performance by Platform")
 net_perf = get_network_content_performance(pp)
 
 fig = platform_bar(net_perf, "Engagements", "Total Engagements by Platform")
@@ -117,7 +126,7 @@ st.dataframe(
 st.divider()
 
 # --- Tag/Theme Analysis ---
-st.markdown("### Performance by Content Theme")
+render_section_header("Performance by Content Theme")
 
 if "Tags" in pp.columns:
     tagged = pp[pp["Tags"].notna() & (pp["Tags"].str.strip() != "")].copy()
@@ -159,15 +168,12 @@ else:
 st.divider()
 
 # --- Top Posts (Grouped Cross-Channel) ---
-st.markdown("### Top Posts (Cross-Channel)")
-st.caption("Identical posts across channels are grouped. Expand for per-channel metrics.")
+render_section_header("Top Posts (Cross-Channel)", "Identical posts across channels are grouped. Expand for per-channel metrics.")
 
 exclude_types = ["Story", "@Reply", "'@Reply"]
 pp_clean = pp[~pp["Post Type"].isin(exclude_types)].copy()
 pp_clean["_post_key"] = pp_clean["Post"].fillna("").str.strip().str[:120]
 pp_clean["_date_key"] = pp_clean["Date"].dt.normalize()
-
-sort_metric = st.selectbox("Sort by", ["Impressions", "Engagements"], index=0, key="cp_sort")
 
 grouped = (
     pp_clean.groupby(["_date_key", "_post_key"])
@@ -178,7 +184,7 @@ grouped = (
         _indices=("Impressions", lambda x: list(x.index)),
     )
     .reset_index()
-    .sort_values(f"Combined_{sort_metric}", ascending=False)
+    .sort_values("Combined_Impressions", ascending=False)
     .head(10)
 )
 
@@ -192,18 +198,7 @@ for rank, (_, grp) in enumerate(grouped.iterrows(), 1):
     n_channels = len(channels)
     channel_str = " + ".join(sorted(set(channels)))
 
-    st.markdown(
-        f"<div style='padding:14px 18px; margin:6px 0; background:#1A1D23; border-radius:10px; "
-        f"border-left: 4px solid #00B4D8;'>"
-        f"<div style='display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;'>"
-        f"<span style='font-size:0.8rem; color:#90A4AE; font-weight:600;'>#{rank} · {channel_str} · {date_str}</span>"
-        f"<span style='font-size:0.8rem; color:#00B4D8; font-weight:600;'>"
-        f"{format_number(total_imp)} imp · {format_number(total_eng)} eng</span>"
-        f"</div>"
-        f"<div style='font-size:0.92rem;'>{post_text}</div>"
-        f"</div>",
-        unsafe_allow_html=True,
-    )
+    render_post_card(rank, channel_str, date_str, post_text, format_number(total_imp), format_number(total_eng))
 
     with st.expander(f"Expand #{rank} — {n_channels} channel{'s' if n_channels > 1 else ''} detail", expanded=False):
         post_rows = pp_clean.loc[indices]
@@ -242,7 +237,7 @@ for rank, (_, grp) in enumerate(grouped.iterrows(), 1):
 st.divider()
 
 # --- Full Post Table ---
-st.markdown("### All Posts")
+render_section_header("All Posts")
 display_cols = [
     "Date",
     "Network",

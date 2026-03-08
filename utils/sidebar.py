@@ -58,10 +58,49 @@ def render_sidebar():
 
         cfg = get_title_config()
         st.markdown(f"## {cfg['icon']} {cfg['full_name']} Community Insights")
-        st.divider()
 
         has_data = "post_performance" in st.session_state and st.session_state["post_performance"] is not None
         title_key = st.session_state["active_title"]
+
+        # ── Filters (date range + platforms) ─────────────────────
+        filters = {}
+        if has_data:
+            pp = st.session_state["post_performance"]
+            min_date = pp["Date"].min().date()
+            max_date = pp["Date"].max().date()
+
+            if "filter_date_range" not in st.session_state:
+                st.session_state["filter_date_range"] = (min_date, max_date)
+
+            date_range = st.date_input(
+                "Date Range",
+                value=st.session_state["filter_date_range"],
+                min_value=min_date,
+                max_value=max_date,
+                key="filter_date_range",
+            )
+            filters["date_range"] = date_range
+
+            network_set = set(pp["Network"].unique())
+            aff_df = st.session_state.get("affogata")
+            if aff_df is not None and "Network Name" in aff_df.columns:
+                network_set.update(aff_df["Network Name"].dropna().unique())
+            inbox_df = st.session_state.get("inbox")
+            if inbox_df is not None and "Network" in inbox_df.columns:
+                network_set.update(inbox_df["Network"].dropna().unique())
+            all_networks = sorted(network_set)
+
+            if "filter_networks" not in st.session_state:
+                st.session_state["filter_networks"] = all_networks
+
+            selected = st.multiselect(
+                "Platforms", all_networks,
+                default=st.session_state["filter_networks"],
+                key="filter_networks",
+            )
+            filters["networks"] = selected
+
+        st.divider()
 
         # ── Upload / Save Data ──────────────────────────────────
         with st.expander("Upload Data", expanded=not has_data):
@@ -205,82 +244,17 @@ def render_sidebar():
         st.divider()
         theme = st.toggle("Light mode", value=st.session_state.get("light_mode", False), key="light_mode")
 
-        # ── Filters ─────────────────────────────────────────────
-        filters = {}
-        if has_data:
-            st.divider()
-            st.markdown("### Filters")
-            pp = st.session_state["post_performance"]
-
-            min_date = pp["Date"].min().date()
-            max_date = pp["Date"].max().date()
-
-            if "filter_date_range" not in st.session_state:
-                st.session_state["filter_date_range"] = (min_date, max_date)
-
-            date_range = st.date_input(
-                "Date Range",
-                value=st.session_state["filter_date_range"],
-                min_value=min_date,
-                max_value=max_date,
-                key="filter_date_range",
-            )
-            filters["date_range"] = date_range
-
-            network_set = set(pp["Network"].unique())
-            aff_df = st.session_state.get("affogata")
-            if aff_df is not None and "Network Name" in aff_df.columns:
-                network_set.update(aff_df["Network Name"].dropna().unique())
-            inbox_df = st.session_state.get("inbox")
-            if inbox_df is not None and "Network" in inbox_df.columns:
-                network_set.update(inbox_df["Network"].dropna().unique())
-            all_networks = sorted(network_set)
-
-            if "filter_networks" not in st.session_state:
-                st.session_state["filter_networks"] = all_networks
-
-            selected = st.multiselect(
-                "Platforms", all_networks,
-                default=st.session_state["filter_networks"],
-                key="filter_networks",
-            )
-            filters["networks"] = selected
-
         return filters
 
 
-_LIGHT_CSS = """
-<style>
-    .stApp { background-color: #FFFFFF; color: #1a1a2e; }
-    [data-testid="stSidebar"] { background-color: #F0F2F6; }
-    [data-testid="stSidebar"] * { color: #1a1a2e; }
-    .stApp h1, .stApp h2, .stApp h3, .stApp h4 { color: #1a1a2e; }
-    .stApp p, .stApp span, .stApp label, .stApp div { color: #1a1a2e; }
-    [data-testid="stMetricValue"] { color: #1a1a2e !important; }
-    [data-testid="stMetricLabel"] { color: #555 !important; }
-    .stApp .stCaption { color: #666; }
-    [data-testid="stExpander"] { background-color: #F9F9F9; border-color: #ddd; }
-    .stSelectbox label, .stMultiSelect label { color: #1a1a2e; }
-    .stDataFrame { color: #1a1a2e; }
-    [data-testid="stMarkdownContainer"] div[style*="background:#1A1D23"],
-    [data-testid="stMarkdownContainer"] div[style*="background:#12141A"],
-    [data-testid="stMarkdownContainer"] div[style*="background:#252830"] {
-        background: #F5F7FA !important;
-        color: #1a1a2e !important;
-    }
-    [data-testid="stMarkdownContainer"] div[style*="background:#1A1D23"] span,
-    [data-testid="stMarkdownContainer"] div[style*="background:#12141A"] span,
-    [data-testid="stMarkdownContainer"] div[style*="background:#252830"] span {
-        color: #1a1a2e !important;
-    }
-</style>
-"""
-
-
 def apply_theme():
-    """Inject light-mode CSS if the toggle is active."""
-    if st.session_state.get("light_mode", False):
-        st.markdown(_LIGHT_CSS, unsafe_allow_html=True)
+    """Inject global CSS (and light-mode overrides if toggled).
+
+    Delegates to utils.theme.inject_global_css() which handles both modes
+    via CSS custom properties.
+    """
+    from utils.theme import inject_global_css
+    inject_global_css()
 
 
 def require_data():

@@ -15,6 +15,7 @@ from utils.charts import (
     CHART_CONFIG,
     PLATFORM_COLORS,
 )
+from utils.theme import render_section_header, render_platform_card
 
 filters = render_sidebar()
 apply_theme()
@@ -34,31 +35,24 @@ if prof_raw is None:
 prof = apply_filters(prof_raw, filters)
 
 # --- Platform Summary ---
-st.markdown("### Platform Summary")
+render_section_header("Platform Summary")
 platform = get_platform_summary(prof)
 
 cols = st.columns(len(platform))
 for i, (_, row) in enumerate(platform.iterrows()):
     with cols[i]:
         color = PLATFORM_COLORS.get(row["Network"], "#00B4D8")
-        st.markdown(
-            f"<div style='text-align:center; padding:12px; background:#1A1D23; "
-            f"border-radius:10px; border-top: 3px solid {color};'>"
-            f"<div style='font-size:1.1rem; font-weight:600;'>{row['Network']}</div>"
-            f"<div style='color:#90A4AE; font-size:0.75rem;'>AUDIENCE</div>"
-            f"<div style='font-size:1.3rem; font-weight:700; color:{color};'>"
-            f"{format_number(row.get('Audience', 0))}</div>"
-            f"<div style='color:#90A4AE; font-size:0.75rem; margin-top:8px;'>GROWTH</div>"
-            f"<div style='font-size:1rem; font-weight:600;'>"
-            f"+{format_number(row['Net Audience Growth'])}</div>"
-            f"</div>",
-            unsafe_allow_html=True,
+        render_platform_card(
+            network=row["Network"],
+            audience=format_number(row.get("Audience", 0)),
+            growth=format_number(row["Net Audience Growth"]),
+            color=color,
         )
 
 st.divider()
 
 # --- Share of Voice ---
-st.markdown("### Share of Voice")
+render_section_header("Share of Voice")
 col1, col2 = st.columns(2)
 with col1:
     fig = platform_share_pie(platform, "Impressions", "Share of Impressions")
@@ -70,14 +64,14 @@ with col2:
 st.divider()
 
 # --- Engagement Rate by Platform ---
-st.markdown("### Engagement Rate by Platform")
+render_section_header("Engagement Rate by Platform")
 fig = platform_bar(platform, "Engagement Rate", "Engagement Rate by Platform (%)")
 st.plotly_chart(fig, use_container_width=True, config=CHART_CONFIG)
 
 st.divider()
 
 # --- Daily Trends ---
-st.markdown("### Daily Trends by Platform")
+render_section_header("Daily Trends by Platform")
 metric_choice = st.selectbox(
     "Metric", ["Impressions", "Engagements", "Video Views", "Net Audience Growth"]
 )
@@ -88,7 +82,7 @@ st.plotly_chart(fig, use_container_width=True, config=CHART_CONFIG)
 st.divider()
 
 # --- Audience Growth Over Time ---
-st.markdown("### Cumulative Audience Growth")
+render_section_header("Cumulative Audience Growth")
 import plotly.graph_objects as go
 from utils.charts import apply_dark_theme
 
@@ -115,7 +109,7 @@ st.plotly_chart(fig, use_container_width=True, config=CHART_CONFIG)
 st.divider()
 
 # --- Detailed Platform Table ---
-st.markdown("### Detailed Metrics")
+render_section_header("Detailed Metrics")
 st.dataframe(
     platform[["Network", "Audience", "Net Audience Growth", "Impressions", "Engagements", "Engagement Rate", "Video Views"]]
     .sort_values("Engagements", ascending=False)

@@ -4,6 +4,7 @@ import pandas as pd
 st.set_page_config(page_title="Compare Periods", page_icon="🔄", layout="wide")
 
 from utils.sidebar import render_sidebar, require_data, apply_theme
+from utils.theme import render_section_header, render_kpi_card, render_compare_card
 from utils.data_loader import (
     load_post_performance,
     load_profile_performance,
@@ -143,7 +144,7 @@ def delta_color(a, b):
 
 
 # ── Comparison Cards ───────────────────────────────────────────
-st.markdown("### Key Metrics Comparison")
+render_section_header("Key Metrics Comparison")
 
 metrics_to_compare = [
     ("Total Impressions", "total_impressions"),
@@ -166,24 +167,12 @@ for i, (display_name, key) in enumerate(metrics_to_compare):
     fmt_b = f"{val_b:.2f}%" if is_rate else format_number(val_b)
 
     with cols[i % 3]:
-        st.markdown(
-            f"<div style='background:#1A1D23; border-radius:10px; padding:16px; margin:8px 0; "
-            f"border-top: 3px solid {color};'>"
-            f"<div style='font-size:0.8rem; color:#90A4AE; text-transform:uppercase;'>{display_name}</div>"
-            f"<div style='display:flex; justify-content:space-between; align-items:baseline; margin-top:8px;'>"
-            f"<div><span style='font-size:0.75rem; color:#90A4AE;'>{label_a[:20]}</span><br>"
-            f"<span style='font-size:1.4rem; font-weight:700; color:#00B4D8;'>{fmt_a}</span></div>"
-            f"<div style='font-size:1.2rem; font-weight:700; color:{color};'>{delta}</div>"
-            f"<div style='text-align:right;'><span style='font-size:0.75rem; color:#90A4AE;'>{label_b[:20]}</span><br>"
-            f"<span style='font-size:1.4rem; font-weight:700; color:#90E0EF;'>{fmt_b}</span></div>"
-            f"</div></div>",
-            unsafe_allow_html=True,
-        )
+        render_compare_card(display_name, fmt_a, fmt_b, label_a, label_b, delta, color)
 
 st.divider()
 
 # ── Visual Comparison ──────────────────────────────────────────
-st.markdown("### Visual Comparison")
+render_section_header("Visual Comparison")
 
 metric_names = ["total_impressions", "total_engagements", "total_posts", "total_comments", "total_shares"]
 display_names = ["Impressions", "Engagements", "Posts", "Comments", "Shares"]
@@ -200,7 +189,7 @@ st.plotly_chart(fig, use_container_width=True, config=CHART_CONFIG)
 st.divider()
 
 # ── Sentiment Comparison (Looker) ──────────────────────────────
-st.markdown("### Sentiment Comparison (Looker)")
+render_section_header("Sentiment Comparison (Looker)")
 
 col_s1, col_s2 = st.columns(2)
 
@@ -241,8 +230,7 @@ if (looker_a is not None and len(looker_a) > 0) and (looker_b is not None and le
     direction = "higher" if diff > 0 else "lower"
     color = delta_color(avg_a, avg_b)
     st.markdown(
-        f"<div style='background:#1A1D23; border-radius:10px; padding:16px; "
-        f"border-left: 4px solid {color};'>"
+        f'<div class="t-compare" style="border-left: 4px solid {color};">'
         f"Period A avg impact score is <strong style='color:{color};'>{abs(diff):.1f} points {direction}</strong> "
         f"than Period B ({avg_a:.1f} vs {avg_b:.1f})"
         f"</div>",
@@ -252,7 +240,7 @@ if (looker_a is not None and len(looker_a) > 0) and (looker_b is not None and le
 st.divider()
 
 # ── Community Volume Comparison ────────────────────────────────
-st.markdown("### Community Volume Comparison")
+render_section_header("Community Volume Comparison")
 
 col_v1, col_v2 = st.columns(2)
 
@@ -285,7 +273,7 @@ with col_v2:
 st.divider()
 
 # ── Platform Comparison ────────────────────────────────────────
-st.markdown("### Platform Comparison")
+render_section_header("Platform Comparison")
 
 net_a = get_network_content_performance(pp_a)
 net_b = get_network_content_performance(pp_b)
@@ -310,7 +298,7 @@ st.dataframe(
 
 # ── AI Analysis ───────────────────────────────────────────────
 st.divider()
-st.markdown("### AI Analysis: What Changed and Why")
+render_section_header("AI Analysis: What Changed and Why")
 
 from utils.ai_analysis import generate_comparison_narrative
 

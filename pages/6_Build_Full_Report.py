@@ -12,7 +12,7 @@ from utils.ai_analysis import (
     generate_pos_neg_themes,
     generate_conversation_drivers,
 )
-from utils.charts import SENTIMENT_COLORS
+from utils.theme import render_section_header, render_quote_card, POSITIVE, NEGATIVE
 
 filters = render_sidebar()
 apply_theme()
@@ -28,7 +28,7 @@ looker = st.session_state.get("looker_sentiment")
 date_min = pp["Date"].min().strftime("%b %d, %Y")
 date_max = pp["Date"].max().strftime("%b %d, %Y")
 
-st.title(f"📋 Build Full Report")
+st.title("📋 Build Full Report")
 st.markdown(f"*Generate an AI-powered comprehensive report for {cfg['full_name']} ({date_min} — {date_max})*")
 st.divider()
 
@@ -94,7 +94,7 @@ if report_ready:
     exec_text = st.session_state.get("full_report_exec")
     if exec_text:
         st.markdown("---")
-        st.markdown("## Executive Summary")
+        render_section_header("Executive Summary")
         st.markdown(exec_text)
         report_parts.append(f"## Executive Summary\n\n{exec_text}")
 
@@ -107,7 +107,7 @@ if report_ready:
     themes_data = st.session_state.get("full_report_themes")
     if themes_data:
         st.markdown("---")
-        st.markdown("## Community Coverage Themes")
+        render_section_header("Community Coverage Themes")
 
         pos_themes = themes_data.get("positive_themes", [])
         neg_themes = themes_data.get("negative_themes", [])
@@ -124,13 +124,7 @@ if report_ready:
                     st.markdown("**Notable Quotes:**")
                     themes_md += "**Notable Quotes:**\n\n"
                     for q in quotes:
-                        st.markdown(
-                            f"<div style='padding:8px 14px; margin:4px 0; background:#1A1D23; "
-                            f"border-radius:8px; border-left: 3px solid #06D6A0;'>"
-                            f"<span style='font-size:0.85rem; font-style:italic;'>\"{q}\"</span>"
-                            f"</div>",
-                            unsafe_allow_html=True,
-                        )
+                        render_quote_card(q, POSITIVE)
                         themes_md += f"- \"{q}\"\n"
                     themes_md += "\n"
                 st.markdown("")
@@ -146,13 +140,7 @@ if report_ready:
                     st.markdown("**Notable Quotes:**")
                     themes_md += "**Notable Quotes:**\n\n"
                     for q in quotes:
-                        st.markdown(
-                            f"<div style='padding:8px 14px; margin:4px 0; background:#1A1D23; "
-                            f"border-radius:8px; border-left: 3px solid #EF476F;'>"
-                            f"<span style='font-size:0.85rem; font-style:italic;'>\"{q}\"</span>"
-                            f"</div>",
-                            unsafe_allow_html=True,
-                        )
+                        render_quote_card(q, NEGATIVE)
                         themes_md += f"- \"{q}\"\n"
                     themes_md += "\n"
                 st.markdown("")

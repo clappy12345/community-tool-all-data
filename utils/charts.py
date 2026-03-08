@@ -28,13 +28,34 @@ def apply_dark_theme(fig, height=400):
     fig.update_layout(
         plot_bgcolor="rgba(0,0,0,0)",
         paper_bgcolor="rgba(0,0,0,0)",
-        font=dict(color="#FAFAFA", size=12),
+        font=dict(color="#FAFAFA", size=12, family="Inter, -apple-system, sans-serif"),
         legend=dict(bgcolor="rgba(0,0,0,0)", font=dict(size=11)),
         margin=dict(l=40, r=20, t=50, b=40),
         height=height,
+        hoverlabel=dict(
+            bgcolor="#1A1D23",
+            bordercolor="#00B4D8",
+            font_size=12,
+            font_color="#FAFAFA",
+            font_family="Inter, -apple-system, sans-serif",
+        ),
+        title=dict(
+            font=dict(size=14, color="#FAFAFA"),
+            x=0,
+            xanchor="left",
+            y=0.98,
+        ),
     )
-    fig.update_xaxes(gridcolor="rgba(255,255,255,0.1)", zeroline=False)
-    fig.update_yaxes(gridcolor="rgba(255,255,255,0.1)", zeroline=False)
+    fig.update_xaxes(
+        gridcolor="rgba(255,255,255,0.06)",
+        zeroline=False,
+        tickfont=dict(size=11),
+    )
+    fig.update_yaxes(
+        gridcolor="rgba(255,255,255,0.06)",
+        zeroline=False,
+        tickfont=dict(size=11),
+    )
     return fig
 
 
