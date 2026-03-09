@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import json
 import os
 import shutil
@@ -17,7 +19,15 @@ def _dataset_dir(title_key: str, label: str) -> Path:
     return DATA_DIR / title_key / safe_label
 
 
-def save_dataset(label: str, title_key: str) -> str:
+def save_dataset(
+    label: str,
+    title_key: str,
+    campaign_start: str | None = None,
+    campaign_phases: list | None = None,
+    campaign_events: list | None = None,
+    game_version: str | None = None,
+    campaign_type: str | None = None,
+) -> str:
     dest = _dataset_dir(title_key, label)
     dest.mkdir(parents=True, exist_ok=True)
 
@@ -40,6 +50,11 @@ def save_dataset(label: str, title_key: str) -> str:
         "title": title_key,
         "label": label,
         "date_range": date_range,
+        "campaign_start": campaign_start,
+        "campaign_phases": campaign_phases or [],
+        "campaign_events": campaign_events or [],
+        "game_version": game_version,
+        "campaign_type": campaign_type,
         "saved_at": datetime.now().isoformat(),
         "row_counts": row_counts,
     }
@@ -47,6 +62,52 @@ def save_dataset(label: str, title_key: str) -> str:
         json.dump(manifest, f, indent=2)
 
     return label
+
+
+def update_dataset_phases(title_key: str, label: str, phases: list) -> None:
+    """Update campaign_phases on an existing saved dataset manifest."""
+    manifest_path = _dataset_dir(title_key, label) / "manifest.json"
+    if not manifest_path.exists():
+        return
+    with open(manifest_path) as f:
+        manifest = json.load(f)
+    manifest["campaign_phases"] = phases
+    if phases and not manifest.get("campaign_start"):
+        manifest["campaign_start"] = phases[0]["start"]
+    with open(manifest_path, "w") as f:
+        json.dump(manifest, f, indent=2)
+
+
+def update_dataset_events(title_key: str, label: str, events: list) -> None:
+    """Update campaign_events on an existing saved dataset manifest."""
+    manifest_path = _dataset_dir(title_key, label) / "manifest.json"
+    if not manifest_path.exists():
+        return
+    with open(manifest_path) as f:
+        manifest = json.load(f)
+    manifest["campaign_events"] = events
+    with open(manifest_path, "w") as f:
+        json.dump(manifest, f, indent=2)
+
+
+def update_dataset_metadata(title_key: str, label: str, **fields) -> None:
+    """Update arbitrary manifest fields on an existing saved dataset."""
+    manifest_path = _dataset_dir(title_key, label) / "manifest.json"
+    if not manifest_path.exists():
+        return
+    with open(manifest_path) as f:
+        manifest = json.load(f)
+    manifest.update(fields)
+    with open(manifest_path, "w") as f:
+        json.dump(manifest, f, indent=2)
+
+
+def get_dataset_manifest(title_key: str, label: str) -> dict | None:
+    manifest_path = _dataset_dir(title_key, label) / "manifest.json"
+    if manifest_path.exists():
+        with open(manifest_path) as f:
+            return json.load(f)
+    return None
 
 
 def list_saved_datasets(title_key: str) -> list[dict]:

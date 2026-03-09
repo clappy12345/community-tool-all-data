@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import re
 from collections import Counter
 from datetime import timedelta
@@ -47,6 +49,9 @@ def get_kpis(post_df, profile_df):
     total_posts = len(post_df)
     total_comments = post_df["Comments"].sum()
     total_shares = post_df["Shares"].sum()
+    total_saves = post_df["Saves"].sum() if "Saves" in post_df.columns else 0
+    total_link_clicks = post_df["Post Link Clicks"].sum() if "Post Link Clicks" in post_df.columns else 0
+    video_view_rate = (total_video_views / total_impressions * 100) if total_impressions > 0 and total_video_views > 0 else 0
 
     return {
         "total_impressions": total_impressions,
@@ -59,6 +64,9 @@ def get_kpis(post_df, profile_df):
         "total_posts": total_posts,
         "total_comments": total_comments,
         "total_shares": total_shares,
+        "total_saves": total_saves,
+        "total_link_clicks": total_link_clicks,
+        "video_view_rate": video_view_rate,
     }
 
 
@@ -69,17 +77,21 @@ def get_kpis_safe(post_df, profile_df=None):
 
     total_imp = post_df["Impressions"].sum()
     total_eng = post_df["Engagements"].sum()
+    total_vv = post_df["Video Views"].sum()
     return {
         "total_impressions": total_imp,
         "total_engagements": total_eng,
         "total_reach": post_df["Reach"].sum() if "Reach" in post_df.columns else 0,
-        "total_video_views": post_df["Video Views"].sum(),
+        "total_video_views": total_vv,
         "avg_engagement_rate": (total_eng / total_imp * 100) if total_imp > 0 else 0,
         "audience_growth": 0,
         "total_audience": 0,
         "total_posts": len(post_df),
         "total_comments": post_df["Comments"].sum(),
         "total_shares": post_df["Shares"].sum(),
+        "total_saves": post_df["Saves"].sum() if "Saves" in post_df.columns else 0,
+        "total_link_clicks": post_df["Post Link Clicks"].sum() if "Post Link Clicks" in post_df.columns else 0,
+        "video_view_rate": (total_vv / total_imp * 100) if total_imp > 0 and total_vv > 0 else 0,
     }
 
 
@@ -101,16 +113,18 @@ def get_daily_metrics(profile_df):
 
 
 def get_platform_summary(profile_df):
+    agg_dict = {
+        "Impressions": "sum",
+        "Engagements": "sum",
+        "Video Views": "sum",
+        "Net Audience Growth": "sum",
+    }
+    if "Audience Gained" in profile_df.columns:
+        agg_dict["Audience Gained"] = "sum"
+
     platform = (
         profile_df.groupby("Network")
-        .agg(
-            {
-                "Impressions": "sum",
-                "Engagements": "sum",
-                "Video Views": "sum",
-                "Net Audience Growth": "sum",
-            }
-        )
+        .agg(agg_dict)
         .reset_index()
     )
 
@@ -126,6 +140,16 @@ def get_platform_summary(profile_df):
     platform["Engagement Rate"] = (
         platform["Engagements"] / platform["Impressions"] * 100
     ).fillna(0)
+
+    if "Audience Gained" in platform.columns:
+        platform["Audience Lost"] = platform["Audience Gained"] - platform["Net Audience Growth"]
+    else:
+        platform["Audience Gained"] = 0
+        platform["Audience Lost"] = 0
+
+    platform["Video View Rate"] = (
+        platform["Video Views"] / platform["Impressions"] * 100
+    ).where(platform["Impressions"] > 0, 0).fillna(0)
 
     return platform
 
@@ -219,6 +243,8 @@ def get_network_content_performance(post_df):
 
 def combine_community_messages(aff_df=None, inbox_df=None):
     """Merge Affogata and Inbox messages into a single DataFrame with Link/Source."""
+    all_cols = ["Timestamp", "Network", "Text", "Sentiment", "Engagements", "Link", "Source",
+                "Likes", "Shares", "Comments", "Views"]
     frames = []
     if aff_df is not None and len(aff_df) > 0:
         a = aff_df[["Created At", "Network Name", "Text", "Sentiment"]].copy()
@@ -226,6 +252,8 @@ def combine_community_messages(aff_df=None, inbox_df=None):
         a["Link"] = aff_df["URL"] if "URL" in aff_df.columns else ""
         a["Source"] = "Community"
         a.columns = ["Timestamp", "Network", "Text", "Sentiment", "Engagements", "Link", "Source"]
+        for ec in ["Likes", "Shares", "Comments", "Views"]:
+            a[ec] = aff_df[ec].values if ec in aff_df.columns else 0
         frames.append(a)
     if inbox_df is not None and len(inbox_df) > 0 and "Message" in inbox_df.columns:
         cols_needed = ["Timestamp", "Network", "Message", "Sentiment"]
@@ -235,9 +263,11 @@ def combine_community_messages(aff_df=None, inbox_df=None):
             b["Link"] = inbox_df["Permalink"] if "Permalink" in inbox_df.columns else ""
             b["Source"] = "Direct"
             b.columns = ["Timestamp", "Network", "Text", "Sentiment", "Engagements", "Link", "Source"]
+            for ec in ["Likes", "Shares", "Comments", "Views"]:
+                b[ec] = 0
             frames.append(b)
     if not frames:
-        return pd.DataFrame(columns=["Timestamp", "Network", "Text", "Sentiment", "Engagements", "Link", "Source"])
+        return pd.DataFrame(columns=all_cols)
     combined = pd.concat(frames, ignore_index=True)
     combined = combined[combined["Text"].notna() & (combined["Text"].str.strip() != "")]
     return combined
@@ -264,6 +294,8 @@ def get_messages_around_beat(affogata_df, inbox_df, beat_date, days_window=1):
                     "Link": aff["URL"] if "URL" in aff.columns else "",
                 }
             )
+            for ec in ["Likes", "Shares", "Comments", "Views"]:
+                aff_out[ec] = aff[ec].values if ec in aff.columns else 0
             frames.append(aff_out)
 
     if inbox_df is not None and len(inbox_df) > 0 and "Timestamp" in inbox_df.columns:
@@ -281,14 +313,18 @@ def get_messages_around_beat(affogata_df, inbox_df, beat_date, days_window=1):
                     "Link": inb["Permalink"] if "Permalink" in inb.columns else "",
                 }
             )
+            for ec in ["Likes", "Shares", "Comments", "Views"]:
+                inb_out[ec] = 0
             frames.append(inb_out)
 
+    all_cols = ["Timestamp", "Network", "Text", "Sentiment", "Engagements", "Source", "Link",
+                "Likes", "Shares", "Comments", "Views"]
     if frames:
         combined = pd.concat(frames, ignore_index=True)
         combined = combined[combined["Text"].notna() & (combined["Text"].str.strip() != "")]
         return combined
 
-    return pd.DataFrame(columns=["Timestamp", "Network", "Text", "Sentiment", "Engagements", "Source", "Link"])
+    return pd.DataFrame(columns=all_cols)
 
 
 def format_number(n):
@@ -430,7 +466,7 @@ def _collect_texts_with_dates(aff_df=None, inbox_df=None):
             for _, r in aff_df.dropna(subset=["Text"]).iterrows():
                 items.append((r["Text"], pd.Timestamp(r["Created At"])))
     if inbox_df is not None and len(inbox_df) > 0:
-        date_col = "Date" if "Date" in inbox_df.columns else "Timestamp (PT)"
+        date_col = "Date" if "Date" in inbox_df.columns else "Timestamp"
         if "Message" in inbox_df.columns and date_col in inbox_df.columns:
             for _, r in inbox_df.dropna(subset=["Message"]).iterrows():
                 items.append((r["Message"], pd.Timestamp(r[date_col])))

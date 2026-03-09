@@ -1,32 +1,40 @@
 import streamlit as st
 import pandas as pd
 
-st.set_page_config(page_title="Compare Periods", page_icon="🔄", layout="wide")
+st.set_page_config(page_title="Compare Periods", layout="wide")
 
 from utils.sidebar import render_sidebar, require_data, apply_theme
-from utils.theme import render_section_header, render_kpi_card, render_compare_card
-from utils.data_loader import (
-    load_post_performance,
-    load_profile_performance,
-    load_affogata,
-    load_inbox_export,
-    load_looker_sentiment,
-)
+from utils.theme import render_section_header, render_compare_card, render_nav_header
 from utils.processors import get_kpis_safe, format_number, get_network_content_performance
 from utils.charts import comparison_bar, looker_sentiment_timeline, CHART_CONFIG
-from utils.titles import get_title_config
-from utils.data_store import list_saved_datasets, load_saved_dataset
-from utils.sample_data import generate_sample_comparison_data
+from utils.data_store import load_saved_dataset, get_dataset_manifest
+
+
+_CW_KEYS = ["cw_pick_a_start", "cw_pick_a_end", "cw_pick_b_start", "cw_pick_b_end"]
+
+
+def _reset_comparison_window():
+    """Clear window date picker state so they reset to full-range defaults."""
+    for k in _CW_KEYS:
+        st.session_state.pop(k, None)
+
+
+def _filter_by_date_range(df, date_col, start, end):
+    """Filter a DataFrame to rows within [start, end] inclusive."""
+    if df is None:
+        return None
+    if not len(df):
+        return df
+    mask = (df[date_col].dt.date >= start) & (df[date_col].dt.date <= end)
+    return df[mask]
 
 filters = render_sidebar()
 apply_theme()
 require_data()
 
-st.title("🔄 Compare Periods")
-st.markdown("*Compare your current data side-by-side with a past period*")
-st.divider()
+render_nav_header("Compare Periods", "Compare your current data side-by-side with a past period or campaign")
+st.markdown("")
 
-_cfg = get_title_config()
 title_key = st.session_state.get("active_title", "NHL")
 
 # ── Period A (current data) ────────────────────────────────────
@@ -40,71 +48,26 @@ date_a_min = pp_a["Date"].min().strftime("%b %d, %Y")
 date_a_max = pp_a["Date"].max().strftime("%b %d, %Y")
 label_a = st.text_input("Period A Label", value=f"{date_a_min} — {date_a_max}")
 
-# ── Period B: sample, saved, or uploaded ───────────────────────
-st.markdown("### Period B — Comparison Data")
+# ── Period B: NHL 25 Full Season ───────────────────────────────
+st.markdown("### Period B — NHL 25 Full Season")
 
-saved = list_saved_datasets(title_key)
-source_options = ["Load sample data", "Upload new files"]
-if saved:
-    source_options.append("Load from saved datasets")
+_PERIOD_B_DATASET = f"{title_key} 25 Full Season"
 
-source = st.radio("Period B source", source_options, horizontal=True)
+_b_loaded = st.session_state.get("compare_post_performance") is not None
 
-if source == "Load sample data":
-    if st.button("Load Sample Comparison Data", type="primary", use_container_width=True):
-        with st.spinner("Generating sample comparison data..."):
-            sample = generate_sample_comparison_data(title_key)
-            for k, v in sample.items():
-                st.session_state[f"compare_{k}"] = v
-        st.rerun()
-
-elif source == "Load from saved datasets" and saved:
-    saved_labels = [ds["label"] for ds in saved]
-    chosen = st.selectbox("Select a saved dataset", saved_labels)
-
-    if st.button("Load Period B", use_container_width=True):
-        with st.spinner(f"Loading {chosen}..."):
-            loaded = load_saved_dataset(title_key, chosen)
+if not _b_loaded:
+    st.caption("Load the NHL 25 full-season dataset to compare against your current data.")
+    if st.button(f"Load {_PERIOD_B_DATASET}", type="primary", use_container_width=True):
+        with st.spinner(f"Loading {_PERIOD_B_DATASET}..."):
+            loaded = load_saved_dataset(title_key, _PERIOD_B_DATASET)
             for k, v in loaded.items():
                 st.session_state[f"compare_{k}"] = v
+            manifest = get_dataset_manifest(title_key, _PERIOD_B_DATASET)
+            cs = manifest.get("campaign_start") if manifest else None
+            st.session_state["compare_campaign_start"] = cs
+            st.session_state["compare_campaign_events"] = manifest.get("campaign_events", []) if manifest else []
+            _reset_comparison_window()
         st.rerun()
-else:
-    st.markdown(f"Upload the same CSV types from a different date range ({_cfg['compare_hint']}).")
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        pp_b_file = st.file_uploader("Post Performance", type=["csv"], key="compare_pp")
-        inbox_b_file = st.file_uploader("Inbox Export", type=["csv", "zip"], key="compare_inbox")
-    with col2:
-        prof_b_file = st.file_uploader("Profile Performance", type=["csv"], key="compare_prof")
-        looker_b_file = st.file_uploader("Looker Sentiment", type=["csv"], key="compare_looker")
-    with col3:
-        aff_b_file = st.file_uploader("Affogata Export", type=["csv"], key="compare_aff")
-
-    if pp_b_file:
-        st.session_state["compare_post_performance"] = load_post_performance(
-            pp_b_file.read(), pp_b_file.name
-        )
-        pp_b_file.seek(0)
-    if prof_b_file:
-        st.session_state["compare_profile_performance"] = load_profile_performance(
-            prof_b_file.read(), prof_b_file.name
-        )
-        prof_b_file.seek(0)
-    if aff_b_file:
-        st.session_state["compare_affogata"] = load_affogata(
-            aff_b_file.read(), aff_b_file.name
-        )
-        aff_b_file.seek(0)
-    if inbox_b_file:
-        st.session_state["compare_inbox"] = load_inbox_export(
-            inbox_b_file.read(), inbox_b_file.name
-        )
-        inbox_b_file.seek(0)
-    if looker_b_file:
-        st.session_state["compare_looker_sentiment"] = load_looker_sentiment(
-            looker_b_file.read(), looker_b_file.name
-        )
-        looker_b_file.seek(0)
 
 pp_b = st.session_state.get("compare_post_performance")
 prof_b = st.session_state.get("compare_profile_performance")
@@ -113,18 +76,99 @@ inbox_b = st.session_state.get("compare_inbox")
 looker_b = st.session_state.get("compare_looker_sentiment")
 
 if pp_b is None:
-    st.info("Select or upload Period B data above to see comparisons.")
+    st.info("Select Period B data above to see comparisons.")
     st.stop()
 
 date_b_min = pp_b["Date"].min().strftime("%b %d, %Y")
 date_b_max = pp_b["Date"].max().strftime("%b %d, %Y")
 label_b = st.text_input("Period B Label", value=f"{date_b_min} — {date_b_max}")
 
-st.divider()
+# ── Key Dates reminder for Period B ──────────────────────────
+_reminder_events = st.session_state.get("compare_campaign_events", [])
+_reminder_events = [e for e in _reminder_events if e.get("name") and e.get("date")]
+if _reminder_events:
+    _sorted_evts = sorted(_reminder_events, key=lambda e: e["date"])
+    _pill_parts = []
+    for e in _sorted_evts:
+        _ec = e.get("color", "#4ECDC4")
+        _en = e["name"]
+        _ed = pd.Timestamp(e["date"]).strftime("%b %d, %Y")
+        _pill_parts.append(
+            f"<span style='display:inline-block; padding:2px 10px; margin:2px 0; "
+            f"border-left:3px solid {_ec}; font-size:0.82rem;'>"
+            f"<strong>{_en}</strong> &mdash; {_ed}</span>"
+        )
+    _pills = "  ".join(_pill_parts)
+    st.markdown(
+        f"<div style='background:rgba(78,205,196,0.08); border-radius:8px; "
+        f"padding:10px 14px; margin:4px 0 12px 0;'>"
+        f"<span style='font-size:0.72rem; text-transform:uppercase; letter-spacing:0.8px; "
+        f"color:var(--text-secondary); font-weight:600;'>Key Dates</span><br>"
+        f"{_pills}</div>",
+        unsafe_allow_html=True,
+    )
+
+st.markdown("")
+
+# ═══════════════════════════════════════════════════════════════
+# Compare Window — one section, two modes
+# ═══════════════════════════════════════════════════════════════
+
+full_a_start = pp_a["Date"].min().date()
+full_a_end = pp_a["Date"].max().date()
+full_b_start = pp_b["Date"].min().date()
+full_b_end = pp_b["Date"].max().date()
+
+# Clamp stale session values
+for _key, _min, _max in [
+    ("cw_pick_a_start", full_a_start, full_a_end),
+    ("cw_pick_a_end", full_a_start, full_a_end),
+    ("cw_pick_b_start", full_b_start, full_b_end),
+    ("cw_pick_b_end", full_b_start, full_b_end),
+]:
+    if _key in st.session_state:
+        v = st.session_state[_key]
+        if v < _min or v > _max:
+            del st.session_state[_key]
+
+_dp1, _dp2 = st.columns(2)
+with _dp1:
+    st.markdown("**Period A dates**")
+    window_a_start = st.date_input("Start", value=full_a_start, min_value=full_a_start, max_value=full_a_end, key="cw_pick_a_start")
+    window_a_end = st.date_input("End", value=full_a_end, min_value=full_a_start, max_value=full_a_end, key="cw_pick_a_end")
+with _dp2:
+    st.markdown("**Period B dates**")
+    window_b_start = st.date_input("Start", value=full_b_start, min_value=full_b_start, max_value=full_b_end, key="cw_pick_b_start")
+    window_b_end = st.date_input("End", value=full_b_end, min_value=full_b_start, max_value=full_b_end, key="cw_pick_b_end")
+
+_sel_a = (window_a_end - window_a_start).days + 1
+_sel_b = (window_b_end - window_b_start).days + 1
+st.caption(f"Comparing **{_sel_a} days** (A) vs **{_sel_b} days** (B)")
+
+# ── Apply window filter to all dataframes ──────────────────────
+pp_a_w = _filter_by_date_range(pp_a, "Date", window_a_start, window_a_end)
+pp_b_w = _filter_by_date_range(pp_b, "Date", window_b_start, window_b_end)
+prof_a_w = _filter_by_date_range(prof_a, "Date", window_a_start, window_a_end)
+prof_b_w = _filter_by_date_range(prof_b, "Date", window_b_start, window_b_end)
+looker_a_w = _filter_by_date_range(looker_a, "Date", window_a_start, window_a_end)
+looker_b_w = _filter_by_date_range(looker_b, "Date", window_b_start, window_b_end)
+aff_a_w = _filter_by_date_range(aff_a, "Created At", window_a_start, window_a_end)
+aff_b_w = _filter_by_date_range(aff_b, "Created At", window_b_start, window_b_end)
+inbox_a_w = _filter_by_date_range(inbox_a, "Timestamp", window_a_start, window_a_end)
+inbox_b_w = _filter_by_date_range(inbox_b, "Timestamp", window_b_start, window_b_end)
+
+pp_a_sliced = pp_a_w
+pp_b_sliced = pp_b_w
+prof_a_sliced = prof_a_w
+prof_b_sliced = prof_b_w
+looker_a_sliced = looker_a_w if looker_a_w is not None and len(looker_a_w) > 0 else None
+looker_b_sliced = looker_b_w if looker_b_w is not None and len(looker_b_w) > 0 else None
+
+st.markdown("")
 
 # ── Calculate KPIs ─────────────────────────────────────────────
-kpis_a = get_kpis_safe(pp_a, prof_a)
-kpis_b = get_kpis_safe(pp_b, prof_b)
+kpis_a = get_kpis_safe(pp_a_sliced, prof_a_sliced)
+kpis_b = get_kpis_safe(pp_b_sliced, prof_b_sliced)
 
 
 def delta_pct(a, b):
@@ -153,6 +197,9 @@ metrics_to_compare = [
     ("Audience Growth", "audience_growth"),
     ("Total Posts", "total_posts"),
     ("Total Comments", "total_comments"),
+    ("Saves", "total_saves"),
+    ("Link Clicks", "total_link_clicks"),
+    ("Video View Rate", "video_view_rate"),
 ]
 
 cols = st.columns(3)
@@ -169,7 +216,7 @@ for i, (display_name, key) in enumerate(metrics_to_compare):
     with cols[i % 3]:
         render_compare_card(display_name, fmt_a, fmt_b, label_a, label_b, delta, color)
 
-st.divider()
+st.markdown("")
 
 # ── Visual Comparison ──────────────────────────────────────────
 render_section_header("Visual Comparison")
@@ -186,58 +233,76 @@ fig.update_layout(
 )
 st.plotly_chart(fig, use_container_width=True, config=CHART_CONFIG)
 
-st.divider()
+st.markdown("")
 
-# ── Sentiment Comparison (Looker) ──────────────────────────────
-render_section_header("Sentiment Comparison (Looker)")
+# ── Sentiment Comparison ───────────────────────────────────────
+render_section_header("Sentiment Comparison")
 
-col_s1, col_s2 = st.columns(2)
+_has_looker_a = looker_a_sliced is not None and len(looker_a_sliced) > 0
+_has_looker_b = looker_b_sliced is not None and len(looker_b_sliced) > 0
 
-with col_s1:
-    st.markdown(f"**{label_a}**")
-    if looker_a is not None and len(looker_a) > 0:
-        avg_a = looker_a["Impact Score"].mean()
-        high_a = looker_a["Impact Score"].max()
-        low_a = looker_a["Impact Score"].min()
-        m1, m2, m3 = st.columns(3)
-        m1.metric("Avg Impact Score", f"{avg_a:.1f}")
-        m2.metric("Highest", f"{high_a:.1f}")
-        m3.metric("Lowest", f"{low_a:.1f}")
-        fig = looker_sentiment_timeline(looker_a, f"Sentiment — {label_a[:25]}")
-        st.plotly_chart(fig, use_container_width=True, config=CHART_CONFIG)
+if _has_looker_a or _has_looker_b:
+    _metric_cols = st.columns(6)
+    if _has_looker_a:
+        avg_a = looker_a_sliced["Impact Score"].mean()
+        _metric_cols[0].metric(f"Avg ({label_a[:12]})", f"{avg_a:.1f}")
+        _metric_cols[1].metric("High", f"{looker_a_sliced['Impact Score'].max():.1f}")
+        _metric_cols[2].metric("Low", f"{looker_a_sliced['Impact Score'].min():.1f}")
+    if _has_looker_b:
+        avg_b = looker_b_sliced["Impact Score"].mean()
+        _metric_cols[3].metric(f"Avg ({label_b[:12]})", f"{avg_b:.1f}")
+        _metric_cols[4].metric("High", f"{looker_b_sliced['Impact Score'].max():.1f}")
+        _metric_cols[5].metric("Low", f"{looker_b_sliced['Impact Score'].min():.1f}")
+
+    if _has_looker_a and _has_looker_b:
+        import plotly.graph_objects as go
+        from utils.charts import apply_dark_theme
+
+        _la = looker_a_sliced.copy()
+        _lb = looker_b_sliced.copy()
+        _la["Day"] = (_la["Date"] - _la["Date"].min()).dt.days
+        _lb["Day"] = (_lb["Date"] - _lb["Date"].min()).dt.days
+        _da = _la.groupby("Day")["Impact Score"].mean().reset_index()
+        _db = _lb.groupby("Day")["Impact Score"].mean().reset_index()
+
+        fig_sent = go.Figure()
+        fig_sent.add_trace(go.Scatter(
+            x=_da["Day"], y=_da["Impact Score"],
+            mode="lines+markers", name=label_a,
+            line=dict(color="#06D6A0", width=2.5, shape="spline"), marker=dict(size=5),
+        ))
+        fig_sent.add_trace(go.Scatter(
+            x=_db["Day"], y=_db["Impact Score"],
+            mode="lines+markers", name=label_b,
+            line=dict(color="#90E0EF", width=2.5, shape="spline"), marker=dict(size=5),
+        ))
+        fig_sent.update_layout(
+            title="Sentiment Score — aligned by period start",
+            xaxis_title="Day", yaxis_title="Impact Score",
+        )
+        fig_sent = apply_dark_theme(fig_sent)
+    elif _has_looker_a:
+        fig_sent = looker_sentiment_timeline(looker_a_sliced, f"Sentiment — {label_a[:25]}")
     else:
-        st.caption("No Looker Sentiment data for Period A")
+        fig_sent = looker_sentiment_timeline(looker_b_sliced, f"Sentiment — {label_b[:25]}")
 
-with col_s2:
-    st.markdown(f"**{label_b}**")
-    if looker_b is not None and len(looker_b) > 0:
-        avg_b = looker_b["Impact Score"].mean()
-        high_b = looker_b["Impact Score"].max()
-        low_b = looker_b["Impact Score"].min()
-        m1, m2, m3 = st.columns(3)
-        m1.metric("Avg Impact Score", f"{avg_b:.1f}")
-        m2.metric("Highest", f"{high_b:.1f}")
-        m3.metric("Lowest", f"{low_b:.1f}")
-        fig = looker_sentiment_timeline(looker_b, f"Sentiment — {label_b[:25]}")
-        st.plotly_chart(fig, use_container_width=True, config=CHART_CONFIG)
-    else:
-        st.caption("No Looker Sentiment data for Period B")
+    st.plotly_chart(fig_sent, use_container_width=True, config=CHART_CONFIG)
 
-if (looker_a is not None and len(looker_a) > 0) and (looker_b is not None and len(looker_b) > 0):
-    avg_a = looker_a["Impact Score"].mean()
-    avg_b = looker_b["Impact Score"].mean()
-    diff = avg_a - avg_b
-    direction = "higher" if diff > 0 else "lower"
-    color = delta_color(avg_a, avg_b)
-    st.markdown(
-        f'<div class="t-compare" style="border-left: 4px solid {color};">'
-        f"Period A avg impact score is <strong style='color:{color};'>{abs(diff):.1f} points {direction}</strong> "
-        f"than Period B ({avg_a:.1f} vs {avg_b:.1f})"
-        f"</div>",
-        unsafe_allow_html=True,
-    )
+    if _has_looker_a and _has_looker_b:
+        diff = avg_a - avg_b
+        direction = "higher" if diff > 0 else "lower"
+        color = delta_color(avg_a, avg_b)
+        st.markdown(
+            f'<div class="t-compare" style="border-left: 4px solid {color};">'
+            f"Period A avg impact score is <strong style='color:{color};'>{abs(diff):.1f} points {direction}</strong> "
+            f"than Period B ({avg_a:.1f} vs {avg_b:.1f})"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+else:
+    st.caption("No sentiment data available for either period")
 
-st.divider()
+st.markdown("")
 
 # ── Community Volume Comparison ────────────────────────────────
 render_section_header("Community Volume Comparison")
@@ -247,10 +312,10 @@ col_v1, col_v2 = st.columns(2)
 with col_v1:
     st.markdown(f"**{label_a}**")
     vol_parts = []
-    if aff_a is not None and len(aff_a) > 0:
-        vol_parts.append(f"**{len(aff_a):,}** community conversations (Affogata)")
-    if inbox_a is not None and len(inbox_a) > 0:
-        vol_parts.append(f"**{len(inbox_a):,}** inbox messages (Sprout)")
+    if aff_a_w is not None and len(aff_a_w) > 0:
+        vol_parts.append(f"**{len(aff_a_w):,}** community conversations (Affogata)")
+    if inbox_a_w is not None and len(inbox_a_w) > 0:
+        vol_parts.append(f"**{len(inbox_a_w):,}** inbox messages (Sprout)")
     if vol_parts:
         for p in vol_parts:
             st.markdown(p)
@@ -260,23 +325,23 @@ with col_v1:
 with col_v2:
     st.markdown(f"**{label_b}**")
     vol_parts = []
-    if aff_b is not None and len(aff_b) > 0:
-        vol_parts.append(f"**{len(aff_b):,}** community conversations (Affogata)")
-    if inbox_b is not None and len(inbox_b) > 0:
-        vol_parts.append(f"**{len(inbox_b):,}** inbox messages (Sprout)")
+    if aff_b_w is not None and len(aff_b_w) > 0:
+        vol_parts.append(f"**{len(aff_b_w):,}** community conversations (Affogata)")
+    if inbox_b_w is not None and len(inbox_b_w) > 0:
+        vol_parts.append(f"**{len(inbox_b_w):,}** inbox messages (Sprout)")
     if vol_parts:
         for p in vol_parts:
             st.markdown(p)
     else:
         st.caption("No community data for Period B")
 
-st.divider()
+st.markdown("")
 
 # ── Platform Comparison ────────────────────────────────────────
 render_section_header("Platform Comparison")
 
-net_a = get_network_content_performance(pp_a)
-net_b = get_network_content_performance(pp_b)
+net_a = get_network_content_performance(pp_a_sliced)
+net_b = get_network_content_performance(pp_b_sliced)
 
 comparison_metric = st.selectbox("Compare by", ["Engagements", "Impressions", "Comments", "Shares"])
 
@@ -297,7 +362,7 @@ st.dataframe(
 )
 
 # ── AI Analysis ───────────────────────────────────────────────
-st.divider()
+st.markdown("")
 render_section_header("AI Analysis: What Changed and Why")
 
 from utils.ai_analysis import generate_comparison_narrative
@@ -322,7 +387,7 @@ with col_ai_status:
 if run_analysis:
     with st.spinner("Analyzing differences between periods..."):
         result = generate_comparison_narrative(
-            label_a, label_b, kpis_a, kpis_b, looker_a, looker_b
+            label_a, label_b, kpis_a, kpis_b, looker_a_sliced, looker_b_sliced
         )
         if result:
             st.session_state[narrative_key] = result
@@ -332,7 +397,7 @@ if narrative_ready:
     st.markdown(st.session_state[narrative_key])
 
 # ── Export ─────────────────────────────────────────────────────
-st.divider()
+st.markdown("")
 summary_data = []
 for display_name, key in metrics_to_compare:
     summary_data.append(
@@ -344,12 +409,12 @@ for display_name, key in metrics_to_compare:
         }
     )
 
-if (looker_a is not None and len(looker_a) > 0) and (looker_b is not None and len(looker_b) > 0):
+if (looker_a_sliced is not None and len(looker_a_sliced) > 0) and (looker_b_sliced is not None and len(looker_b_sliced) > 0):
     summary_data.append({
         "Metric": "Avg Sentiment Score (Looker)",
-        label_a: round(looker_a["Impact Score"].mean(), 1),
-        label_b: round(looker_b["Impact Score"].mean(), 1),
-        "Delta": delta_pct(looker_a["Impact Score"].mean(), looker_b["Impact Score"].mean()),
+        label_a: round(looker_a_sliced["Impact Score"].mean(), 1),
+        label_b: round(looker_b_sliced["Impact Score"].mean(), 1),
+        "Delta": delta_pct(looker_a_sliced["Impact Score"].mean(), looker_b_sliced["Impact Score"].mean()),
     })
 
 summary_df = pd.DataFrame(summary_data)

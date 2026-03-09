@@ -1,6 +1,6 @@
 import streamlit as st
 
-st.set_page_config(page_title="Build Full Report", page_icon="📋", layout="wide")
+st.set_page_config(page_title="Build Full Report", layout="wide")
 
 from utils.sidebar import render_sidebar, require_data, apply_theme
 from utils.titles import get_title_config
@@ -12,7 +12,7 @@ from utils.ai_analysis import (
     generate_pos_neg_themes,
     generate_conversation_drivers,
 )
-from utils.theme import render_section_header, render_quote_card, POSITIVE, NEGATIVE
+from utils.theme import render_section_header, render_quote_card, render_nav_header, POSITIVE, NEGATIVE
 
 filters = render_sidebar()
 apply_theme()
@@ -28,9 +28,11 @@ looker = st.session_state.get("looker_sentiment")
 date_min = pp["Date"].min().strftime("%b %d, %Y")
 date_max = pp["Date"].max().strftime("%b %d, %Y")
 
-st.title("📋 Build Full Report")
-st.markdown(f"*Generate an AI-powered comprehensive report for {cfg['full_name']} ({date_min} — {date_max})*")
-st.divider()
+render_nav_header(
+    "Build Full Report",
+    f"Generate an AI-powered comprehensive report for {cfg['full_name']} ({date_min} — {date_max})",
+)
+st.markdown("")
 
 has_community = (aff is not None and len(aff) > 0) or (inbox is not None and len(inbox) > 0)
 
@@ -93,20 +95,20 @@ if report_ready:
 
     exec_text = st.session_state.get("full_report_exec")
     if exec_text:
-        st.markdown("---")
+        st.markdown("")
         render_section_header("Executive Summary")
         st.markdown(exec_text)
         report_parts.append(f"## Executive Summary\n\n{exec_text}")
 
     perf_text = st.session_state.get("full_report_perf")
     if perf_text:
-        st.markdown("---")
+        st.markdown("")
         st.markdown(perf_text)
         report_parts.append(perf_text)
 
     themes_data = st.session_state.get("full_report_themes")
     if themes_data:
-        st.markdown("---")
+        st.markdown("")
         render_section_header("Community Coverage Themes")
 
         pos_themes = themes_data.get("positive_themes", [])
@@ -149,11 +151,11 @@ if report_ready:
 
     drivers_text = st.session_state.get("full_report_drivers")
     if drivers_text:
-        st.markdown("---")
+        st.markdown("")
         st.markdown(drivers_text)
         report_parts.append(drivers_text)
 
-    st.divider()
+    st.markdown("")
     full_md = "\n\n---\n\n".join(report_parts)
     filename = (
         f"{cfg['name']}_Full_Report_{date_min}_{date_max}.md"

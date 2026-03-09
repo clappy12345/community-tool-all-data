@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 
-st.set_page_config(page_title="Community Insights", page_icon="💬", layout="wide")
+st.set_page_config(page_title="Community Insights", layout="wide")
 
 from utils.sidebar import render_sidebar, require_data, apply_theme
 from utils.processors import (
@@ -33,6 +33,7 @@ from utils.theme import (
     render_message_card,
     render_section_header,
     render_trend_line,
+    render_nav_header,
 )
 
 filters = render_sidebar()
@@ -42,9 +43,11 @@ require_data()
 from utils.titles import get_title_config
 
 _cfg = get_title_config()
-st.title("💬 Community Insights")
-st.markdown(f"*What {_cfg['community_noun']} are saying — AI-powered theme discovery and community voice*")
-st.divider()
+render_nav_header(
+    "Community Insights",
+    f"What {_cfg['community_noun']} are saying — AI-powered theme discovery and community voice",
+)
+st.markdown("")
 
 pp = apply_filters(st.session_state["post_performance"], filters)
 aff_raw = st.session_state.get("affogata")
@@ -167,6 +170,10 @@ with tab_sentiment:
                                 engagements=int(msg.get("Engagements", 0)),
                                 link=link if link not in ("", "nan") else "",
                                 timestamp=ts,
+                                likes=int(msg.get("Likes", 0)),
+                                shares=int(msg.get("Shares", 0)),
+                                comments=int(msg.get("Comments", 0)),
+                                views=int(msg.get("Views", 0)),
                             )
 
                         if total > 15:
@@ -177,7 +184,7 @@ with tab_sentiment:
         st.info("Upload Looker Sentiment data to view sentiment trends.")
 
     if aff is not None:
-        st.divider()
+        st.markdown("")
         render_section_header("Conversation Volume by Platform")
         vol = aff.groupby("Network Name").size().reset_index(name="Messages").sort_values("Messages", ascending=False)
         cols = st.columns(min(len(vol), 6))
@@ -185,6 +192,16 @@ with tab_sentiment:
             if i < len(cols):
                 with cols[i]:
                     render_kpi_card(row["Network Name"], format_number(row["Messages"]))
+
+        eng_cols = ["Likes", "Shares", "Comments", "Views", "Reach"]
+        available_eng = [c for c in eng_cols if c in aff.columns and aff[c].sum() > 0]
+        if available_eng:
+            st.markdown("")
+            render_section_header("Engagement Breakdown", "Aggregate engagement metrics from community listening data")
+            ec = st.columns(len(available_eng))
+            for i, col_name in enumerate(available_eng):
+                with ec[i]:
+                    render_kpi_card(f"Total {col_name}", format_number(int(aff[col_name].sum())))
 
 # ═══════════════════════════════════════════════════════════════
 # TAB 2: Topics
@@ -302,7 +319,7 @@ with tab_ai:
                 key="dl_drivers",
             )
 
-        st.divider()
+        st.markdown("")
 
         # Theme Discovery
         render_section_header("AI Theme Discovery",
@@ -357,9 +374,9 @@ with tab_ai:
                     count = theme_summary[theme_summary["Theme"] == name]["Count"].values
                     count_str = f" ({format_number(count[0])} messages)" if len(count) > 0 else ""
                     lean = theme.get("sentiment_lean", "mixed")
-                    lean_emoji = {"positive": "🟢", "negative": "🔴", "mixed": "🟡"}.get(lean, "⚪")
+                    lean_label = {"positive": "[+]", "negative": "[-]", "mixed": "[~]"}.get(lean, "")
 
-                    with st.expander(f"{lean_emoji} **{name}**{count_str}"):
+                    with st.expander(f"{lean_label} **{name}**{count_str}"):
                         st.markdown(f"*{theme['description']}*")
                         st.caption(f"Sentiment lean: {lean} · Keywords: {', '.join(theme['keywords'][:8])}")
 
@@ -441,6 +458,10 @@ with tab_messages:
                 engagements=int(msg.get("Engagements", 0)),
                 link=link if link not in ("", "nan") else "",
                 timestamp=ts,
+                likes=int(msg.get("Likes", 0)),
+                shares=int(msg.get("Shares", 0)),
+                comments=int(msg.get("Comments", 0)),
+                views=int(msg.get("Views", 0)),
             )
 
         if total_msgs > page_size:

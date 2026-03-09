@@ -3,7 +3,7 @@ import pandas as pd
 
 st.set_page_config(
     page_title="Community Insights",
-    page_icon="📊",
+    page_icon="CI",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -28,21 +28,29 @@ from utils.charts import (
     SENTIMENT_COLORS,
 )
 from utils.ai_analysis import discover_topic_buckets, load_saved_topic_buckets
+from utils.data_store import list_saved_datasets
 from utils.theme import (
     inject_global_css,
     render_kpi_card,
     render_post_card,
     render_message_card,
     render_section_header,
+    render_nav_header,
+    render_empty_state,
+    render_steps,
+    render_feature_grid,
 )
 
 filters = render_sidebar()
 apply_theme()
 cfg = get_title_config()
 
-st.title(f"{cfg['icon']} {cfg['full_name']} Dashboard")
-st.markdown("*Social performance + community snapshot — all in one view*")
-st.divider()
+_icon_prefix = f"{cfg['icon']} " if cfg['icon'] else ""
+render_nav_header(
+    f"{_icon_prefix}{cfg['full_name']} Dashboard",
+    "Social performance + community snapshot — all in one view",
+)
+st.markdown("")
 
 has_data = "post_performance" in st.session_state and st.session_state["post_performance"] is not None
 
@@ -72,6 +80,10 @@ def _compute_period_deltas(pp_current, pp_full):
     }
     if "Reach" in pp_current.columns:
         metrics["total_reach"] = ("Reach", "sum")
+    if "Saves" in pp_current.columns:
+        metrics["total_saves"] = ("Saves", "sum")
+    if "Post Link Clicks" in pp_current.columns:
+        metrics["total_link_clicks"] = ("Post Link Clicks", "sum")
 
     deltas = {}
     for key, (col, agg) in metrics.items():
@@ -118,37 +130,86 @@ if has_data:
     date_max = pp["Date"].max().strftime("%b %d, %Y")
 
     # ── KPI Dashboard ──────────────────────────────────────────
-    render_section_header(f"Reporting Period: {date_min} — {date_max}")
+    # Detect active campaign phase from saved datasets
+    _title_key = st.session_state.get("active_title", "NHL")
+    _active_phase_label = ""
+    _all_saved = list_saved_datasets(_title_key)
+    _current_phases = []
+    for _ds in _all_saved:
+        _dr = _ds.get("date_range")
+        if _dr and _dr[0] == pp["Date"].min().strftime("%Y-%m-%d") and _dr[1] == pp["Date"].max().strftime("%Y-%m-%d"):
+            _current_phases = _ds.get("campaign_phases", [])
+            break
+    if _current_phases:
+        _cur_start = pp["Date"].min().date()
+        _cur_end = pp["Date"].max().date()
+        for _ph in _current_phases:
+            _ph_start = pd.Timestamp(_ph["start"]).date()
+            _ph_end = pd.Timestamp(_ph.get("end", _ph["start"])).date()
+            if _ph_start >= _cur_start and _ph_end <= _cur_end:
+                _day0 = (_ph_start - _cur_start).days
+                _dayN = (_ph_end - _cur_start).days
+                _active_phase_label = f" · *{_ph['name']} (Days {_day0}–{_dayN})*"
+                break
+
+    render_section_header(f"Reporting Period: {date_min} — {date_max}{_active_phase_label}")
 
     def _delta(key):
         return deltas.get(key)
 
     c1, c2, c3, c4, c5 = st.columns(5)
     with c1:
-        render_kpi_card("Total Impressions", format_number(kpis["total_impressions"]), _delta("total_impressions"))
+        render_kpi_card("Total Impressions", format_number(kpis["total_impressions"]), _delta("total_impressions"),
+                        help="Total number of times your content was displayed on screen, including repeat views by the same user.")
     with c2:
-        render_kpi_card("Total Engagements", format_number(kpis["total_engagements"]), _delta("total_engagements"))
+        render_kpi_card("Total Engagements", format_number(kpis["total_engagements"]), _delta("total_engagements"),
+                        help="Sum of all interactions (likes, comments, shares, clicks, saves) across your posts.")
     with c3:
-        render_kpi_card("Engagement Rate", f"{kpis['avg_engagement_rate']:.2f}%")
+        render_kpi_card("Engagement Rate", f"{kpis['avg_engagement_rate']:.2f}%",
+                        help="Average engagements per impression, expressed as a percentage. Higher = more compelling content.")
     with c4:
-        render_kpi_card("Video Views", format_number(kpis.get("total_video_views", pp["Video Views"].sum())), _delta("total_video_views"))
+        render_kpi_card("Video Views", format_number(kpis.get("total_video_views", pp["Video Views"].sum())), _delta("total_video_views"),
+                        help="Total number of times your videos were watched. View thresholds vary by platform (e.g. 3s on most).")
     with c5:
         growth = kpis.get("audience_growth", 0)
-        render_kpi_card("Audience Growth", f"{'+' if growth > 0 else ''}{format_number(growth)}")
+        render_kpi_card("Audience Growth", f"{'+' if growth > 0 else ''}{format_number(growth)}",
+                        help="Net change in followers/subscribers during this period.")
 
     st.markdown("")
     c6, c7, c8, c9, c10 = st.columns(5)
     with c6:
-        render_kpi_card("Total Posts", f"{int(kpis['total_posts']):,}", _delta("total_posts"))
+        render_kpi_card("Total Posts", f"{int(kpis['total_posts']):,}", _delta("total_posts"),
+                        help="Number of posts published across all platforms in the selected date range.")
     with c7:
-        render_kpi_card("Total Reach", format_number(kpis.get("total_reach", 0)), _delta("total_reach"))
+        render_kpi_card("Total Reach", format_number(kpis.get("total_reach", 0)), _delta("total_reach"),
+                        help="Number of unique users who saw your content at least once. Unlike impressions, each person is counted only once.")
     with c8:
-        render_kpi_card("Comments", format_number(kpis.get("total_comments", 0)), _delta("total_comments"))
+        render_kpi_card("Comments", format_number(kpis.get("total_comments", 0)), _delta("total_comments"),
+                        help="Total comments and replies left on your posts across all platforms.")
     with c9:
-        render_kpi_card("Shares", format_number(kpis.get("total_shares", 0)), _delta("total_shares"))
+        render_kpi_card("Shares", format_number(kpis.get("total_shares", 0)), _delta("total_shares"),
+                        help="Number of times users shared your content (retweets, reposts, shares, sends).")
     with c10:
         aud = kpis.get("total_audience", 0)
-        render_kpi_card("Total Audience", format_number(aud) if aud > 0 else "N/A")
+        render_kpi_card("Total Audience", format_number(aud) if aud > 0 else "N/A",
+                        help="Current total follower/subscriber count across all connected platforms.")
+
+    st.markdown("")
+    c11, c12, c13, c14, c15 = st.columns(5)
+    with c11:
+        render_kpi_card("Saves", format_number(kpis.get("total_saves", 0)), _delta("total_saves"),
+                        help="Number of times users bookmarked or saved your posts for later. A strong signal of high-value content.")
+    with c12:
+        render_kpi_card("Link Clicks", format_number(kpis.get("total_link_clicks", 0)), _delta("total_link_clicks"),
+                        help="Number of clicks on links included in your posts (e.g. URLs, CTAs, link stickers).")
+    with c13:
+        vvr = kpis.get("video_view_rate", 0)
+        render_kpi_card("Video View Rate", f"{vvr:.1f}%" if vvr > 0 else "N/A",
+                        help="Percentage of impressions that resulted in a video view. Higher = stronger stop-scroll power.")
+    with c14:
+        st.empty()
+    with c15:
+        st.empty()
 
     if period_days > 0 and len(deltas) > 0:
         st.caption(f"*Trends vs. prior {period_days}-day period*")
@@ -168,7 +229,7 @@ if has_data:
         s2.metric("Highest", f"{max_row['Impact Score']:.1f}", help=max_row["Date"].strftime("%b %d"))
         s3.metric("Lowest", f"{min_row['Impact Score']:.1f}", help=min_row["Date"].strftime("%b %d"))
 
-    st.divider()
+    st.markdown("")
 
     # ── Charts Section ─────────────────────────────────────────
 
@@ -183,7 +244,7 @@ if has_data:
         fig = looker_sentiment_timeline(looker, "Daily Sentiment Score")
         st.plotly_chart(fig, use_container_width=True, config=CHART_CONFIG)
 
-    st.divider()
+    st.markdown("")
 
     # ── What the Community Is Talking About ────────────────────
     if aff is not None or inbox_raw is not None:
@@ -235,9 +296,9 @@ if has_data:
                 else:
                     st.error("Could not discover topics. Check your Google API key.")
 
-        st.divider()
+        st.markdown("")
 
-    # ── Top 5 Posts by Impressions (grouped cross-platform) ───
+    # ── Posts by Impressions (paginated, grouped cross-platform) ───
     render_section_header("Top Posts by Impressions", "Posts shared across channels are grouped. Expand for per-channel metrics + community messages.")
 
     exclude_types = ["Story", "@Reply", "'@Reply"]
@@ -255,10 +316,26 @@ if has_data:
         )
         .reset_index()
         .sort_values("Combined_Impressions", ascending=False)
-        .head(5)
+        .reset_index(drop=True)
     )
 
-    for rank, (_, grp) in enumerate(grouped.iterrows(), 1):
+    POSTS_PER_PAGE = 5
+    total_posts_count = len(grouped)
+    total_pages = max(1, (total_posts_count + POSTS_PER_PAGE - 1) // POSTS_PER_PAGE)
+
+    if "posts_page" not in st.session_state:
+        st.session_state["posts_page"] = 1
+    current_page = st.session_state["posts_page"]
+    current_page = min(current_page, total_pages)
+
+    start_idx = (current_page - 1) * POSTS_PER_PAGE
+    end_idx = min(start_idx + POSTS_PER_PAGE, total_posts_count)
+    page_slice = grouped.iloc[start_idx:end_idx]
+
+    st.caption(f"Showing {start_idx + 1}–{end_idx} of {total_posts_count} posts")
+
+    for rank_offset, (_, grp) in enumerate(page_slice.iterrows()):
+        rank = start_idx + rank_offset + 1
         post_text = str(grp["_post_key"])[:200]
         date_str = grp["_date_key"].strftime("%b %d, %Y")
         channels = grp["Channels"]
@@ -304,7 +381,6 @@ if has_data:
                     if link and link not in ("", "nan"):
                         st.markdown(f"[View Post on {row['Network']} ↗]({link})")
 
-            # Community messages for that day
             post_date = grp["_date_key"].date()
             messages = get_messages_around_beat(aff_raw, inbox_raw, post_date, days_window=0)
             if messages is not None and len(messages) > 0:
@@ -320,39 +396,64 @@ if has_data:
                         sentiment=msg["Sentiment"],
                         engagements=int(msg.get("Engagements", 0)),
                         link=msg_link if msg_link not in ("", "nan") else "",
+                        likes=int(msg.get("Likes", 0)),
+                        shares=int(msg.get("Shares", 0)),
+                        comments=int(msg.get("Comments", 0)),
+                        views=int(msg.get("Views", 0)),
                     )
                 if total_msgs > 8:
                     st.caption(f"... and {total_msgs - 8:,} more messages")
 
+    # Pagination controls
+    if total_pages > 1:
+        st.markdown("")
+        page_cols = st.columns([1, 1, 3, 1, 1])
+        with page_cols[0]:
+            if st.button("« First", disabled=current_page == 1, key="posts_first", use_container_width=True):
+                st.session_state["posts_page"] = 1
+                st.rerun()
+        with page_cols[1]:
+            if st.button("‹ Prev", disabled=current_page == 1, key="posts_prev", use_container_width=True):
+                st.session_state["posts_page"] = current_page - 1
+                st.rerun()
+        with page_cols[2]:
+            st.markdown(
+                f'<div style="text-align:center; padding:6px 0; font-size:0.9rem;">'
+                f'Page <strong>{current_page}</strong> of <strong>{total_pages}</strong>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+        with page_cols[3]:
+            if st.button("Next ›", disabled=current_page == total_pages, key="posts_next", use_container_width=True):
+                st.session_state["posts_page"] = current_page + 1
+                st.rerun()
+        with page_cols[4]:
+            if st.button("Last »", disabled=current_page == total_pages, key="posts_last", use_container_width=True):
+                st.session_state["posts_page"] = total_pages
+                st.rerun()
+
 else:
-    st.markdown("### Getting Started")
-    st.markdown(
-        f"""
-Select a title from the dropdown at the top of the sidebar, then upload your social data exports
-or click **Load Sample Data** to explore with demo data. This tool accepts:
-
-1. **Post Performance** (Sprout Social CSV) — individual post metrics
-2. **Profile Performance** (Sprout Social CSV) — daily profile-level metrics
-3. **Affogata Export** (CSV) — community conversations
-4. **Inbox Export** (Sprout Social CSV or ZIP) — {cfg['community_noun']} messages and comments
-5. **Looker Sentiment Score** (CSV) — daily sentiment impact scores
-
-All files should cover the same date range for the most accurate analysis.
-"""
+    render_empty_state(
+        "",
+        "Welcome to Community Insights",
+        "Select a title from the sidebar, then upload your social data exports "
+        "or load sample data to get started.",
     )
 
-    st.markdown("---")
-    st.markdown(
-        """
-#### Pages Available After Upload
-| Page | What It Shows |
-|------|--------------|
-| **Dashboard** (this page) | KPIs, sentiment, community topics, impressions, top posts |
-| **Content Performance** | Post rankings, content type analysis |
-| **Community Insights** | Sentiment timeline, AI conversation drivers, theme discovery, community messages |
-| **Platform Breakdown** | Platform comparison, audience growth, share of voice |
-| **Compare Periods** | Side-by-side comparison with a second date range |
-| **Ask the Data** | Chatbot (Gemini) — ask natural-language questions about your data |
-| **Full Report** | AI-generated report — exec summary, performance narrative, coverage themes, conversation drivers |
-"""
-    )
+    render_steps([
+        ("Select Title", "Choose your game title from the sidebar dropdown"),
+        ("Upload Data", "Import Sprout Social, Affogata, and Looker CSVs"),
+        ("Explore Insights", "KPIs, sentiment, topics, and AI analysis unlock automatically"),
+    ])
+
+    st.markdown("")
+    render_section_header("Pages Available After Upload")
+    render_feature_grid([
+        ("", "Dashboard", "KPIs, sentiment, community topics, top posts"),
+        ("", "Content Performance", "Post rankings, content type analysis"),
+        ("", "Community Insights", "Sentiment, AI themes, conversation drivers"),
+        ("", "Platform Breakdown", "Platform comparison, share of voice"),
+        ("", "Compare Periods", "Side-by-side date range comparison"),
+        ("", "Ask the Data", "Natural-language questions via Gemini"),
+        ("", "Full Report", "AI-generated executive summary and narrative"),
+    ])

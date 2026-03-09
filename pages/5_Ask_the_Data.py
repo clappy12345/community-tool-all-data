@@ -1,11 +1,12 @@
 import streamlit as st
 import pandas as pd
 
-st.set_page_config(page_title="Ask the Data", page_icon="💬", layout="wide")
+st.set_page_config(page_title="Ask the Data", layout="wide")
 
 from utils.sidebar import render_sidebar, require_data, apply_theme
 from utils.chatbot import get_gemini_client, build_data_context, stream_chat_response
 from utils.processors import format_number
+from utils.theme import render_nav_header, render_powered_by
 
 
 def _build_suggested_questions():
@@ -58,9 +59,8 @@ filters = render_sidebar()
 apply_theme()
 require_data()
 
-st.title("💬 Ask the Data")
-st.markdown("*Ask natural-language questions about your social and community data*")
-st.divider()
+render_nav_header("Ask the Data", "Ask natural-language questions about your social and community data")
+st.markdown("")
 
 client = get_gemini_client()
 
@@ -84,10 +84,13 @@ with col_clear:
         st.rerun()
 
 if not st.session_state["chat_messages"]:
-    st.markdown("#### Ask anything about your loaded data")
     st.markdown(
-        "The chatbot has access to summaries of all your uploaded datasets "
-        "(post performance, profile metrics, community conversations, and inbox messages)."
+        '<p style="font-size:1.05rem; font-weight:600; color:var(--text-heading); margin-bottom:4px;">'
+        'Ask anything about your loaded data</p>'
+        '<p style="font-size:0.82rem; color:var(--text-secondary); margin-bottom:16px;">'
+        'The chatbot has access to summaries of all your uploaded datasets — '
+        'post performance, profile metrics, community conversations, and inbox messages.</p>',
+        unsafe_allow_html=True,
     )
 
     suggested = _build_suggested_questions()
@@ -138,3 +141,5 @@ if (
                 )
             else:
                 st.error(f"Gemini error: {error_msg}")
+
+render_powered_by("Powered by Gemini")

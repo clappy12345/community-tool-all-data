@@ -1,3 +1,4 @@
+import pandas as pd
 import streamlit as st
 from utils.data_loader import (
     load_post_performance,
@@ -8,7 +9,7 @@ from utils.data_loader import (
     check_default_data,
     load_all_defaults,
 )
-from utils.sample_data import generate_sample_data
+from utils.sample_data import generate_sample_data, generate_sample_saved_campaigns
 from utils.titles import TITLES, DEFAULT_TITLE, get_title_config
 from utils.data_store import (
     save_dataset,
@@ -16,13 +17,18 @@ from utils.data_store import (
     load_saved_dataset,
     delete_saved_dataset,
     get_default_label,
+    update_dataset_phases,
+    update_dataset_events,
 )
+from utils.theme import render_status_row
 
 def _auto_save(title_key):
     """Silently save the current session data so it survives page refresh."""
     try:
         label = get_default_label()
-        save_dataset(label, title_key)
+        events_draft = st.session_state.get("campaign_events_draft", [])
+        events = [e for e in events_draft if e.get("name", "").strip()]
+        save_dataset(label, title_key, campaign_events=events if events else None)
     except Exception:
         pass
 
@@ -57,7 +63,17 @@ def render_sidebar():
             st.rerun()
 
         cfg = get_title_config()
-        st.markdown(f"## {cfg['icon']} {cfg['full_name']} Community Insights")
+        st.markdown(
+            f'<div style="padding:4px 0 8px 0;">'
+            f'<span style="font-size:1.4rem;">{cfg["icon"]}</span> '
+            f'<span style="font-size:1.05rem; font-weight:700; letter-spacing:-0.01em;">'
+            f'{cfg["full_name"]}</span>'
+            f'<br><span style="font-size:0.7rem; color:var(--text-secondary); '
+            f'text-transform:uppercase; letter-spacing:0.8px; font-weight:600;">'
+            f'Community Insights</span>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
 
         has_data = "post_performance" in st.session_state and st.session_state["post_performance"] is not None
         title_key = st.session_state["active_title"]
@@ -108,14 +124,153 @@ def render_sidebar():
                 st.success("Data loaded")
 
                 save_label = st.text_input("Dataset label", value=get_default_label(), key="save_label")
+
+                _title_cfg = TITLES.get(title_key, TITLES[DEFAULT_TITLE])
+                _gv_col, _ct_col = st.columns(2)
+                with _gv_col:
+                    game_version = st.text_input(
+                        "Game version",
+                        value=_title_cfg["full_name"],
+                        help="e.g. NHL 25, NHL 26, UFC 5",
+                        key="save_game_version",
+                    )
+                with _ct_col:
+                    _CAMPAIGN_TYPES = [
+                        "Cover Reveal", "Launch Week", "Beta / Early Access",
+                        "Full Season", "Other",
+                    ]
+                    campaign_type = st.selectbox(
+                        "Campaign type",
+                        _CAMPAIGN_TYPES,
+                        help="What phase of the marketing cycle is this data from?",
+                        key="save_campaign_type",
+                    )
+
+                pp_dates = st.session_state["post_performance"]
+                _min_d = pp_dates["Date"].min().date()
+                campaign_date = st.date_input(
+                    "Campaign start (Day 0)",
+                    value=_min_d,
+                    help="Anchor date for relative-day comparisons (e.g. reveal day, launch day)",
+                    key="save_campaign_start",
+                )
+
+                # ── AI Campaign Phase Detection ──────────────
+                if st.button("Auto-detect campaign phases", use_container_width=True, type="secondary"):
+                    from utils.ai_analysis import detect_campaign_phases
+                    with st.spinner("Analyzing data + searching the web for campaign dates..."):
+                        phases = detect_campaign_phases(pp_dates)
+                        if phases:
+                            st.session_state["detected_phases"] = phases
+                        else:
+                            st.warning("Could not detect campaign phases. You can add them manually below.")
+                            st.session_state["detected_phases"] = []
+
+                detected = st.session_state.get("detected_phases")
+                phases_to_save = []
+                if detected is not None:
+                    if len(detected) > 0:
+                        st.caption(f"**{len(detected)} phase(s) detected** — edit names/dates below:")
+                        for i, phase in enumerate(detected):
+                            conf = phase.get("confidence", "")
+                            conf_icon = {"high": "H", "medium": "M", "low": "L"}.get(conf, "-")
+                            pc1, pc2, pc3 = st.columns([3, 2, 2])
+                            with pc1:
+                                name = st.text_input(
+                                    "Phase", value=phase["name"],
+                                    key=f"phase_name_{i}", label_visibility="collapsed",
+                                )
+                            with pc2:
+                                start = st.date_input(
+                                    "Start", value=pd.Timestamp(phase["start"]).date(),
+                                    key=f"phase_start_{i}", label_visibility="collapsed",
+                                )
+                            with pc3:
+                                end = st.date_input(
+                                    "End", value=pd.Timestamp(phase.get("end", phase["start"])).date(),
+                                    key=f"phase_end_{i}", label_visibility="collapsed",
+                                )
+                            evidence = phase.get("evidence", "")
+                            if evidence:
+                                st.caption(f"{conf_icon} {evidence}")
+                            phases_to_save.append({
+                                "name": name,
+                                "start": start.strftime("%Y-%m-%d"),
+                                "end": end.strftime("%Y-%m-%d"),
+                            })
+                    else:
+                        st.caption("No phases detected. Save without phases or try again.")
+
+                # ── Campaign Events (milestones) ──────────────
+                st.markdown(
+                    '<p style="font-size:0.72rem; text-transform:uppercase; '
+                    'letter-spacing:0.8px; color:var(--text-secondary); '
+                    'font-weight:600; margin:12px 0 4px 0;">Campaign Events</p>',
+                    unsafe_allow_html=True,
+                )
+                st.caption("Mark key moments (reveal, trailer, launch) so they appear as indicators on charts.")
+
+                if "campaign_events_draft" not in st.session_state:
+                    st.session_state["campaign_events_draft"] = []
+
+                _EVENT_COLORS = [
+                    "#FF6B6B", "#4ECDC4", "#FFE66D", "#95E1D3",
+                    "#F38181", "#AA96DA", "#FCBAD3", "#A8D8EA",
+                ]
+
+                events_draft = st.session_state["campaign_events_draft"]
+                events_to_remove = []
+                for ei, ev in enumerate(events_draft):
+                    ec1, ec2, ec3 = st.columns([3, 2, 1])
+                    with ec1:
+                        ev["name"] = st.text_input(
+                            "Event", value=ev.get("name", ""),
+                            key=f"evt_name_{ei}", label_visibility="collapsed",
+                            placeholder="e.g. Cover Reveal",
+                        )
+                    with ec2:
+                        ev["date"] = st.date_input(
+                            "Date", value=pd.Timestamp(ev["date"]).date() if ev.get("date") else _min_d,
+                            key=f"evt_date_{ei}", label_visibility="collapsed",
+                        ).strftime("%Y-%m-%d")
+                    with ec3:
+                        if st.button("✕", key=f"evt_del_{ei}", help="Remove event"):
+                            events_to_remove.append(ei)
+
+                if events_to_remove:
+                    for idx in sorted(events_to_remove, reverse=True):
+                        events_draft.pop(idx)
+                    st.session_state["campaign_events_draft"] = events_draft
+                    st.rerun()
+
+                if st.button("＋ Add Event", key="add_campaign_event", use_container_width=True):
+                    color = _EVENT_COLORS[len(events_draft) % len(_EVENT_COLORS)]
+                    events_draft.append({"name": "", "date": _min_d.strftime("%Y-%m-%d"), "color": color})
+                    st.session_state["campaign_events_draft"] = events_draft
+                    st.rerun()
+
+                events_to_save = [
+                    {"name": e["name"], "date": e["date"], "color": _EVENT_COLORS[i % len(_EVENT_COLORS)]}
+                    for i, e in enumerate(events_draft) if e.get("name", "").strip()
+                ]
+
                 if st.button("Save Dataset", use_container_width=True):
+                    cs_str = campaign_date.strftime("%Y-%m-%d") if campaign_date else None
                     with st.spinner("Saving..."):
-                        save_dataset(save_label, title_key)
+                        save_dataset(
+                            save_label, title_key,
+                            campaign_start=cs_str,
+                            campaign_phases=phases_to_save if phases_to_save else None,
+                            campaign_events=events_to_save if events_to_save else None,
+                            game_version=game_version or None,
+                            campaign_type=campaign_type or None,
+                        )
                     st.success(f"Saved: **{save_label}**")
 
                 if st.button("Clear & Re-upload", use_container_width=True):
                     for key in _CLEAR_KEYS:
                         st.session_state.pop(key, None)
+                    st.session_state.pop("detected_phases", None)
                     st.rerun()
             else:
                 defaults = check_default_data()
@@ -134,10 +289,16 @@ def render_sidebar():
                     with st.spinner("Generating sample data..."):
                         for k, v in generate_sample_data(st.session_state["active_title"]).items():
                             st.session_state[k] = v
+                        generate_sample_saved_campaigns(st.session_state["active_title"])
                     _auto_save(title_key)
                     st.rerun()
 
-                st.markdown("**— or upload manually —**")
+                st.markdown(
+                    '<div style="text-align:center; margin:12px 0 8px; font-size:0.72rem; '
+                    'color:var(--text-secondary); text-transform:uppercase; letter-spacing:1px; '
+                    'font-weight:600;">or upload manually</div>',
+                    unsafe_allow_html=True,
+                )
 
                 pp = st.file_uploader("Post Performance (Sprout)", type=["csv"], key="pp_up")
                 prof = st.file_uploader("Profile Performance (Sprout)", type=["csv"], key="prof_up")
@@ -205,7 +366,7 @@ def render_sidebar():
                     col_load, col_del = st.columns([4, 1])
                     with col_load:
                         if st.button(
-                            f"📂 {ds['label']}",
+                            f"{ds['label']}",
                             key=f"load_{ds['label']}",
                             use_container_width=True,
                         ):
@@ -215,16 +376,27 @@ def render_sidebar():
                                     st.session_state.pop(key, None)
                                 for k, v in loaded.items():
                                     st.session_state[k] = v
+                                st.session_state["campaign_events_draft"] = ds.get("campaign_events", [])
                             st.rerun()
                     with col_del:
-                        if st.button("🗑️", key=f"del_{ds['label']}", help="Delete this dataset"):
+                        if st.button("Delete", key=f"del_{ds['label']}", help="Delete this dataset"):
                             delete_saved_dataset(title_key, ds["label"])
                             st.rerun()
 
-                    st.caption(f"{dr_str} — {detail_str}")
+                    cs = ds.get("campaign_start")
+                    cs_str = f" · Day 0: {cs}" if cs else ""
+                    n_phases = len(ds.get("campaign_phases", []))
+                    phase_str = f" · {n_phases} phase{'s' if n_phases != 1 else ''}" if n_phases > 0 else ""
+                    n_events = len(ds.get("campaign_events", []))
+                    event_str = f" · {n_events} event{'s' if n_events != 1 else ''}" if n_events > 0 else ""
+                    st.caption(f"{dr_str}{cs_str}{phase_str}{event_str} — {detail_str}")
 
         # ── Data Status ─────────────────────────────────────────
-        st.markdown("### Data Status")
+        st.markdown(
+            '<p style="font-size:0.7rem; text-transform:uppercase; letter-spacing:0.8px; '
+            'color:var(--text-secondary); font-weight:600; margin:12px 0 6px 0;">Data Sources</p>',
+            unsafe_allow_html=True,
+        )
         sources = {
             "post_performance": ("Post Performance", "posts"),
             "profile_performance": ("Profile Performance", "records"),
@@ -235,13 +407,12 @@ def render_sidebar():
         for key, (name, unit) in sources.items():
             df = st.session_state.get(key)
             if df is not None:
-                count = len(df)
-                st.caption(f"✅ {name}: {count:,} {unit}")
+                render_status_row(name, count=len(df), unit=unit)
             else:
-                st.caption(f"⬜ {name}")
+                render_status_row(name)
 
         # ── Theme Toggle ─────────────────────────────────────────
-        st.divider()
+        st.markdown("")
         theme = st.toggle("Light mode", value=st.session_state.get("light_mode", False), key="light_mode")
 
         return filters

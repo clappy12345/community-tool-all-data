@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import json
 import os
 import streamlit as st
@@ -287,10 +289,10 @@ def _gemini_call(prompt, system_instruction, temperature=0.3, max_tokens=8000, j
             contents=prompt,
             config=types.GenerateContentConfig(**config_kwargs),
         )
+        return response.text
     except Exception as e:
         st.error(f"Gemini API error: {e}")
         return None
-    return response.text
 
 
 def generate_executive_summary(context):
@@ -624,6 +626,157 @@ def load_saved_topic_buckets():
     return None
 
 
+def detect_campaign_phases(post_df, profile_df=None, title_config=None):
+    """Use CSV spike analysis + Gemini with Google Search grounding to detect campaign phases.
+
+    Returns a list of dicts: [{"name": str, "start": str, "end": str, "confidence": str, "evidence": str}, ...]
+    or None on failure.
+    """
+    import numpy as np
+    from utils.titles import get_title_config
+
+    cfg = title_config or get_title_config()
+    client = get_gemini_client()
+    if client is None:
+        st.error("No Google API key found. Set GOOGLE_API_KEY in your .env file.")
+        return None
+
+    from google.genai import types
+
+    date_min = post_df["Date"].min().strftime("%Y-%m-%d")
+    date_max = post_df["Date"].max().strftime("%Y-%m-%d")
+
+    # --- Phase 1: CSV spike analysis ---
+    daily = post_df.groupby(post_df["Date"].dt.normalize()).agg(
+        Posts=("Impressions", "size"),
+        Impressions=("Impressions", "sum"),
+        Engagements=("Engagements", "sum"),
+        VideoViews=("Video Views", "sum"),
+    ).reset_index()
+    daily.columns = ["Date", "Posts", "Impressions", "Engagements", "VideoViews"]
+
+    median_imp = daily["Impressions"].median()
+    daily["Spike"] = daily["Impressions"] / median_imp if median_imp > 0 else 1.0
+    spike_days = daily[daily["Spike"] >= 2.5].sort_values("Spike", ascending=False)
+
+    spike_summary = []
+    for _, row in spike_days.head(15).iterrows():
+        d = row["Date"].strftime("%Y-%m-%d")
+        day_posts = post_df[post_df["Date"].dt.normalize() == row["Date"]]
+        post_texts = day_posts["Post"].dropna().str[:100].tolist()[:5]
+        texts_str = " | ".join(post_texts) if post_texts else "(no post text)"
+        spike_summary.append(
+            f"  {d}: {row['Spike']:.1f}x normal impressions, "
+            f"{int(row['Posts'])} posts, {int(row['Engagements']):,} eng. "
+            f"Post excerpts: {texts_str}"
+        )
+
+    spike_block = "\n".join(spike_summary) if spike_summary else "  No significant spikes detected."
+
+    campaign_keywords = [
+        "reveal", "announce", "launch", "trailer", "gameplay",
+        "available now", "out now", "first look", "deep dive",
+        "cover athlete", "pre-order", "beta", "early access",
+        "official", "introducing", "unveiled",
+    ]
+    keyword_days = []
+    for kw in campaign_keywords:
+        matches = post_df[post_df["Post"].fillna("").str.lower().str.contains(kw, na=False)]
+        if len(matches) > 0:
+            dates = matches["Date"].dt.normalize().unique()
+            for d in dates:
+                keyword_days.append({"date": d, "keyword": kw})
+
+    kw_summary = []
+    if keyword_days:
+        kw_df = pd.DataFrame(keyword_days)
+        kw_by_date = kw_df.groupby("date")["keyword"].apply(list).reset_index()
+        kw_by_date = kw_by_date.sort_values("date")
+        for _, row in kw_by_date.iterrows():
+            kw_summary.append(f"  {row['date'].strftime('%Y-%m-%d')}: keywords found: {', '.join(row['keyword'])}")
+    kw_block = "\n".join(kw_summary[:20]) if kw_summary else "  No campaign keywords found in post text."
+
+    # --- Phase 2: Gemini with Google Search grounding ---
+    game_name = cfg["full_name"]
+    publisher = cfg["publisher"]
+
+    search_prompt = (
+        f"Search the web for key marketing campaign dates for the video game "
+        f"{game_name} by {publisher}. I need the specific dates (month and day) for events like: "
+        f"cover reveal, gameplay trailer, announcement/reveal, beta or early access, "
+        f"launch/release date, and any other major marketing beats. "
+        f"The data I have spans {date_min} to {date_max}. "
+        f"Return the dates you find with sources."
+    )
+
+    web_results = None
+    try:
+        search_response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=search_prompt,
+            config=types.GenerateContentConfig(
+                tools=[types.Tool(google_search=types.GoogleSearch())],
+                temperature=0.1,
+            ),
+        )
+        web_results = search_response.text
+    except Exception as e:
+        web_results = f"(Web search unavailable: {e})"
+
+    # --- Phase 3: Gemini combines all signals to propose phases ---
+    combined_prompt = f"""You are analyzing social media data for {game_name} by {publisher}.
+Data spans {date_min} to {date_max}.
+
+SIGNAL 1 — IMPRESSIONS SPIKES (days with 2.5x+ normal volume):
+{spike_block}
+
+SIGNAL 2 — CAMPAIGN KEYWORDS IN POST TEXT:
+{kw_block}
+
+SIGNAL 3 — WEB SEARCH RESULTS FOR KNOWN CAMPAIGN DATES:
+{web_results or "(no web results)"}
+
+Using all three signals, identify the major marketing campaign phases within this data period.
+For each phase, provide:
+- "name": Short descriptive name (e.g. "Cover Reveal", "Gameplay Trailer", "Launch Week")
+- "start": Start date (YYYY-MM-DD) — the first day of this campaign beat
+- "end": End date (YYYY-MM-DD) — the last high-activity day of this beat (usually 1-5 days)
+- "confidence": "high" if web + CSV both confirm, "medium" if only one signal, "low" if uncertain
+- "evidence": One sentence explaining what signals support this detection
+
+Return a JSON object with a single key "phases" containing an array of phase objects.
+Order by date. Only include phases that fall within the data period {date_min} to {date_max}.
+If you cannot confidently identify any phases, return {{"phases": []}}.
+"""
+
+    result = _gemini_call(
+        combined_prompt,
+        "You are an expert at identifying marketing campaign timelines from social data. "
+        "Return valid JSON only. Be conservative — only flag phases you have evidence for.",
+        temperature=0.2,
+        max_tokens=3000,
+        json_mode=True,
+    )
+    if result is None:
+        return None
+
+    try:
+        parsed = json.loads(result)
+        phases = parsed.get("phases", [])
+        if isinstance(phases, list) and all(
+            isinstance(p, dict) and "name" in p and "start" in p
+            for p in phases
+        ):
+            for p in phases:
+                if "end" not in p:
+                    p["end"] = p["start"]
+            return phases
+    except (json.JSONDecodeError, TypeError):
+        pass
+
+    return None
+
+
 def generate_comparison_narrative(label_a, label_b, kpis_a, kpis_b, looker_a=None, looker_b=None):
     """AI-generated narrative explaining what changed between two periods and why it matters."""
     from utils.titles import get_title_config
@@ -676,4 +829,147 @@ Professional, analytical tone. Reference specific numbers. Do NOT invent data.""
         "period-over-period analyses for game publishers.",
         temperature=0.3,
         max_tokens=3000,
+    )
+
+
+def parse_comparison_request(user_query: str, saved_datasets: list, current_label: str | None = None):
+    """Parse a natural-language campaign comparison request using Gemini.
+
+    *saved_datasets* is the list of manifest dicts from ``list_saved_datasets``.
+    Returns a dict with keys: dataset_a, dataset_b, phase_a, phase_b,
+    day_range_a, day_range_b, explanation  — or None on failure.
+    """
+    from utils.titles import get_title_config
+
+    cfg = get_title_config()
+
+    catalog_lines = []
+    for ds in saved_datasets:
+        dr = ds.get("date_range") or ["?", "?"]
+        cs = ds.get("campaign_start", "")
+        phases = ds.get("campaign_phases", [])
+        phase_strs = []
+        for p in phases:
+            phase_strs.append(f'{p["name"]} ({p["start"]} to {p.get("end", p["start"])})')
+        phase_block = "; ".join(phase_strs) if phase_strs else "none detected"
+        catalog_lines.append(
+            f'- "{ds["label"]}"  date range: {dr[0]} to {dr[1]}  '
+            f'campaign_start: {cs or "not set"}  phases: {phase_block}'
+        )
+
+    if current_label:
+        catalog_lines.insert(0, f'- "__current__" (currently loaded data, label: "{current_label}")')
+
+    catalog_block = "\n".join(catalog_lines) if catalog_lines else "(no saved datasets)"
+
+    prompt = f"""You are resolving a campaign comparison request for {cfg['full_name']} by {cfg['publisher']}.
+
+AVAILABLE DATASETS:
+{catalog_block}
+
+USER REQUEST: "{user_query}"
+
+Your job: figure out which two datasets and which date slices the user wants to compare.
+
+Rules:
+- If the user says "current" or "this campaign" or references the loaded data, use "__current__" as the dataset identifier.
+- Match fuzzy references ("NHL 26", "last year", "the reveal") to the best dataset label.
+- If the user references a phase name (e.g. "cover reveal", "launch"), match it to a detected phase.
+- day_range is [start_day, end_day] relative to the phase start date (or campaign_start, or dataset start if neither exists). Day 0 = the anchor date, Day 2 = two days later, etc.
+- "First 3 days" = [0, 2]. "Week 1" = [0, 6]. "Day 1" = [0, 0]. "First 5 days" = [0, 4].
+- If no specific day range is mentioned, use the full dataset range: [0, 9999] (sentinel for "all data").
+- dataset_a is always the "newer" or "current" period, dataset_b is the older/comparison period.
+
+Return a JSON object with these keys:
+{{
+  "dataset_a": "<label or __current__>",
+  "dataset_b": "<label>",
+  "phase_a": "<phase name or null>",
+  "phase_b": "<phase name or null>",
+  "day_range_a": [start, end],
+  "day_range_b": [start, end],
+  "explanation": "One sentence describing what is being compared and the actual dates"
+}}
+
+If you cannot resolve the request, return:
+{{"error": "reason the request could not be resolved"}}
+"""
+
+    result = _gemini_call(
+        prompt,
+        "You are a precise data operations assistant. Return valid JSON only. "
+        "Match user intent to datasets as accurately as possible.",
+        temperature=0.1,
+        max_tokens=1000,
+        json_mode=True,
+    )
+    if result is None:
+        return {"error": "Gemini API returned no response. Check your API key and quota."}
+
+    def _try_parse(text):
+        try:
+            return json.loads(text)
+        except (json.JSONDecodeError, TypeError):
+            return None
+
+    parsed = _try_parse(result)
+
+    if parsed is None:
+        trimmed = result.rstrip()
+        for closer in ('"', "]", "}", '"}', '"]}', '"]}'):
+            attempt = _try_parse(trimmed + closer)
+            if attempt is not None:
+                parsed = attempt
+                break
+            trimmed += closer
+
+    if parsed is None:
+        return {"error": "Could not parse AI response. Try rephrasing your request."}
+
+    if "error" in parsed:
+        return parsed
+    required = ("dataset_a", "dataset_b", "day_range_a", "day_range_b")
+    if all(k in parsed for k in required):
+        return parsed
+    missing = [k for k in required if k not in parsed]
+    return {"error": f"AI response missing required fields: {', '.join(missing)}. Try rephrasing."}
+
+
+def generate_yoy_narrative(explanation: str, kpis_a: dict, kpis_b: dict):
+    """Short AI narrative summarising a YoY comparison for the dashboard."""
+    from utils.titles import get_title_config
+    from utils.processors import format_number
+
+    cfg = get_title_config()
+
+    def _fmt(v):
+        if isinstance(v, float) and v < 100:
+            return f"{v:.2f}%"
+        return format_number(int(v))
+
+    lines = []
+    for key in kpis_a:
+        va, vb = kpis_a.get(key, 0), kpis_b.get(key, 0)
+        if va == 0 and vb == 0:
+            continue
+        delta = ((va - vb) / vb * 100) if vb != 0 else 0
+        lines.append(f"  {key}: Current = {_fmt(va)}, Comparison = {_fmt(vb)}, change = {delta:+.1f}%")
+
+    metrics_block = "\n".join(lines)
+
+    prompt = f"""You are writing a 2-3 sentence dashboard summary for {cfg['publisher']} {cfg['full_name']}.
+
+Context: {explanation}
+
+METRICS:
+{metrics_block}
+
+Write a concise, insight-driven summary. Bold the most important numbers. Professional tone.
+Open with the single biggest change, then note 1-2 other key shifts. Do NOT invent data."""
+
+    return _gemini_call(
+        prompt,
+        "You are a social media analytics expert writing a concise dashboard annotation.",
+        temperature=0.3,
+        max_tokens=800,
     )

@@ -233,11 +233,15 @@ def generate_sample_data(title_key="NHL"):
     community = TITLE_COMMUNITY.get(title_key, TITLE_COMMUNITY["NHL"])
     inbox_msgs = TITLE_INBOX.get(title_key, TITLE_INBOX["NHL"])
 
-    pp = _generate_post_performance(rng, date_range, posts)
+    pp = _generate_post_performance(rng, date_range, posts, title_key=title_key)
     prof = _generate_profile_performance(rng, date_range)
     aff = _generate_affogata(rng, date_range, community)
     inbox = _generate_inbox(rng, date_range, inbox_msgs)
     looker = _generate_looker_sentiment(rng, date_range)
+
+    title_events = _SAMPLE_CAMPAIGN_EVENTS.get(title_key, _SAMPLE_CAMPAIGN_EVENTS["NHL"])
+    import streamlit as st
+    st.session_state["campaign_events_draft"] = list(title_events.get("current", []))
 
     return {
         "post_performance": pp,
@@ -248,8 +252,154 @@ def generate_sample_data(title_key="NHL"):
     }
 
 
+_SAMPLE_CAMPAIGN_EVENTS = {
+    "NHL": {
+        "full_season": [
+            {"name": "Cover Reveal", "date": "2024-06-10", "color": "#FF6B6B"},
+            {"name": "Gameplay Trailer", "date": "2024-08-05", "color": "#4ECDC4"},
+            {"name": "Beta Start", "date": "2024-09-12", "color": "#FFE66D"},
+            {"name": "Early Access", "date": "2024-10-01", "color": "#95E1D3"},
+            {"name": "Launch Day", "date": "2024-10-04", "color": "#F38181"},
+            {"name": "First Patch", "date": "2024-10-18", "color": "#AA96DA"},
+        ],
+        "cover_reveal": [
+            {"name": "Cover Reveal", "date": "2024-06-10", "color": "#FF6B6B"},
+            {"name": "Trailer Drop", "date": "2024-06-12", "color": "#4ECDC4"},
+        ],
+        "launch_week": [
+            {"name": "Early Access", "date": "2024-10-01", "color": "#95E1D3"},
+            {"name": "Launch Day", "date": "2024-10-04", "color": "#F38181"},
+            {"name": "Day 1 Patch", "date": "2024-10-05", "color": "#AA96DA"},
+        ],
+        "current": [
+            {"name": "Cover Reveal", "date": "2025-08-21", "color": "#FF6B6B"},
+            {"name": "Gameplay Deep Dive", "date": "2025-08-28", "color": "#4ECDC4"},
+            {"name": "Beta Announcement", "date": "2025-09-04", "color": "#FFE66D"},
+        ],
+    },
+    "UFC": {
+        "full_season": [
+            {"name": "Reveal Trailer", "date": "2024-06-10", "color": "#FF6B6B"},
+            {"name": "Gameplay Trailer", "date": "2024-08-05", "color": "#4ECDC4"},
+            {"name": "Early Access", "date": "2024-10-01", "color": "#95E1D3"},
+            {"name": "Launch Day", "date": "2024-10-04", "color": "#F38181"},
+        ],
+        "cover_reveal": [
+            {"name": "Reveal Trailer", "date": "2024-06-10", "color": "#FF6B6B"},
+        ],
+        "launch_week": [
+            {"name": "Launch Day", "date": "2024-10-04", "color": "#F38181"},
+        ],
+        "current": [
+            {"name": "Reveal Trailer", "date": "2025-08-21", "color": "#FF6B6B"},
+        ],
+    },
+    "F1": {
+        "full_season": [
+            {"name": "Reveal Trailer", "date": "2024-06-10", "color": "#FF6B6B"},
+            {"name": "Gameplay Trailer", "date": "2024-08-05", "color": "#4ECDC4"},
+            {"name": "Early Access", "date": "2024-10-01", "color": "#95E1D3"},
+            {"name": "Launch Day", "date": "2024-10-04", "color": "#F38181"},
+        ],
+        "cover_reveal": [
+            {"name": "Reveal Trailer", "date": "2024-06-10", "color": "#FF6B6B"},
+        ],
+        "launch_week": [
+            {"name": "Launch Day", "date": "2024-10-04", "color": "#F38181"},
+        ],
+        "current": [
+            {"name": "Reveal Trailer", "date": "2025-08-21", "color": "#FF6B6B"},
+        ],
+    },
+}
+
+
+def generate_sample_saved_campaigns(title_key="NHL"):
+    """Create saved campaign datasets for the given title to enable campaign comparison."""
+    from utils.data_store import _dataset_dir
+    import json
+
+    title_events = _SAMPLE_CAMPAIGN_EVENTS.get(title_key, _SAMPLE_CAMPAIGN_EVENTS["NHL"])
+
+    campaigns = [
+        {
+            "label": f"{title_key} 25 Full Season",
+            "seed": 55,
+            "start": pd.Timestamp("2024-08-16"),
+            "end": pd.Timestamp("2025-08-16"),
+            "campaign_start": "2024-10-04",
+            "game_version": f"{title_key} 25",
+            "campaign_type": "Full Season",
+            "campaign_events": title_events["full_season"],
+        },
+        {
+            "label": f"{title_key} 25 Cover Reveal",
+            "seed": 77,
+            "start": pd.Timestamp("2024-06-10"),
+            "end": pd.Timestamp("2024-06-24"),
+            "campaign_start": "2024-06-10",
+            "game_version": f"{title_key} 25",
+            "campaign_type": "Cover Reveal",
+            "campaign_events": title_events["cover_reveal"],
+        },
+        {
+            "label": f"{title_key} 25 Launch Week",
+            "seed": 88,
+            "start": pd.Timestamp("2024-10-04"),
+            "end": pd.Timestamp("2024-10-18"),
+            "campaign_start": "2024-10-04",
+            "game_version": f"{title_key} 25",
+            "campaign_type": "Launch Week",
+            "campaign_events": title_events["launch_week"],
+        },
+    ]
+
+    posts = TITLE_POSTS.get(title_key, TITLE_POSTS["NHL"])
+    community = TITLE_COMMUNITY.get(title_key, TITLE_COMMUNITY["NHL"])
+    inbox_msgs = TITLE_INBOX.get(title_key, TITLE_INBOX["NHL"])
+
+    for camp in campaigns:
+        rng = np.random.default_rng(camp["seed"])
+        dr = pd.date_range(camp["start"], camp["end"])
+        data = {
+            "post_performance": _generate_post_performance(rng, dr, posts, title_key=title_key),
+            "profile_performance": _generate_profile_performance(rng, dr),
+            "affogata": _generate_affogata(rng, dr, community),
+            "inbox": _generate_inbox(rng, dr, inbox_msgs),
+            "looker_sentiment": _generate_looker_sentiment(rng, dr),
+        }
+
+        dest = _dataset_dir(title_key, camp["label"])
+        dest.mkdir(parents=True, exist_ok=True)
+        row_counts = {}
+        for key, df in data.items():
+            if df is not None and len(df) > 0:
+                df.to_parquet(dest / f"{key}.parquet", index=False)
+                row_counts[key] = len(df)
+
+        manifest = {
+            "title": title_key,
+            "label": camp["label"],
+            "date_range": [camp["start"].strftime("%Y-%m-%d"), camp["end"].strftime("%Y-%m-%d")],
+            "campaign_start": camp["campaign_start"],
+            "campaign_events": camp.get("campaign_events", []),
+            "game_version": camp.get("game_version"),
+            "campaign_type": camp.get("campaign_type"),
+            "saved_at": pd.Timestamp.now().isoformat(),
+            "row_counts": row_counts,
+        }
+        with open(dest / "manifest.json", "w") as f:
+            json.dump(manifest, f, indent=2)
+
+
 def generate_sample_comparison_data(title_key="NHL"):
-    """Generate sample data for an earlier period (for Compare Periods)."""
+    """Generate sample data for an earlier period (for Compare Periods).
+
+    Also sets ``compare_campaign_events`` in session state so event markers
+    appear on comparison charts.
+    """
+    import streamlit as st
+
     rng = np.random.default_rng(99)
     start = pd.Timestamp("2025-07-24")
     end = pd.Timestamp("2025-08-20")
@@ -259,11 +409,19 @@ def generate_sample_comparison_data(title_key="NHL"):
     community = TITLE_COMMUNITY.get(title_key, TITLE_COMMUNITY["NHL"])
     inbox_msgs = TITLE_INBOX.get(title_key, TITLE_INBOX["NHL"])
 
-    pp = _generate_post_performance(rng, date_range, posts)
+    pp = _generate_post_performance(rng, date_range, posts, title_key=title_key)
     prof = _generate_profile_performance(rng, date_range)
     aff = _generate_affogata(rng, date_range, community)
     inbox = _generate_inbox(rng, date_range, inbox_msgs)
     looker = _generate_looker_sentiment(rng, date_range)
+
+    title_events = _SAMPLE_CAMPAIGN_EVENTS.get(title_key, _SAMPLE_CAMPAIGN_EVENTS["NHL"])
+    comparison_events = [
+        {"name": "Reveal Trailer", "date": "2025-07-24", "color": "#FF6B6B"},
+        {"name": "Gameplay Deep Dive", "date": "2025-08-01", "color": "#4ECDC4"},
+        {"name": "Beta Announcement", "date": "2025-08-10", "color": "#FFE66D"},
+    ]
+    st.session_state["compare_campaign_events"] = comparison_events
 
     return {
         "post_performance": pp,
@@ -274,9 +432,51 @@ def generate_sample_comparison_data(title_key="NHL"):
     }
 
 
-def _generate_post_performance(rng, date_range, posts):
+_CROSS_CHANNEL_POSTS = {
+    "NHL": [
+        (0, ["X", "YouTube", "Instagram", "TikTok"], "NHL 26 is officially HERE. Lace up and hit the ice. Who's ready? #NHL26"),
+        (3, ["X", "Instagram", "Facebook"], "The new skating engine in NHL 26 feels incredible. Every stride matters."),
+        (5, ["YouTube", "TikTok", "Instagram"], "Check out the top 10 goals of the week in #NHL26! Which is your favorite?"),
+        (8, ["X", "Facebook", "Instagram", "YouTube"], "Behind the scenes: how we built the new Frostbite arenas in NHL 26."),
+        (10, ["X", "TikTok", "YouTube"], "Connor McDavid's speed in NHL 26 is INSANE. Real Player Motion at its best."),
+        (14, ["X", "YouTube", "Instagram"], "Cross-play is finally here! Play with friends on any platform."),
+        (18, ["Instagram", "TikTok", "Facebook"], "Show us your nastiest dekes with the new skill stick controls."),
+        (22, ["X", "YouTube", "Facebook", "Instagram", "TikTok"], "This community is incredible. 1M games played in the first 48 hours!"),
+    ],
+    "UFC": [
+        (0, ["X", "YouTube", "Instagram", "TikTok"], "UFC 6 is HERE. Step into the Octagon. Who's fighting first? #UFC6"),
+        (3, ["X", "Instagram", "Facebook"], "The new grappling system in UFC 6 is a game changer. Ground game evolved."),
+        (5, ["YouTube", "TikTok", "Instagram"], "Top 10 KOs of the week in #UFC6! Which one had you jumping off the couch?"),
+        (8, ["X", "Facebook", "Instagram", "YouTube"], "Behind the scenes: motion capture with real UFC fighters for UFC 6."),
+        (10, ["X", "TikTok", "YouTube"], "Alex Pereira's power in UFC 6 is TERRIFYING. Every punch feels lethal."),
+        (14, ["X", "YouTube", "Instagram"], "Cross-play is finally here! Fight friends on any platform."),
+        (18, ["Instagram", "TikTok", "Facebook"], "Show us your best knockouts with the new striking mechanics."),
+        (22, ["X", "YouTube", "Facebook", "Instagram", "TikTok"], "This community is incredible. 2M fights in the first 48 hours!"),
+    ],
+    "F1": [
+        (0, ["X", "YouTube", "Instagram", "TikTok"], "F1 26 is HERE. Lights out and away we go! Who's racing first? #F126"),
+        (3, ["X", "Instagram", "Facebook"], "The new tire model in F1 26 feels incredible. Every compound matters."),
+        (5, ["YouTube", "TikTok", "Instagram"], "Top 10 overtakes of the week in #F126! Which one is your favorite?"),
+        (8, ["X", "Facebook", "Instagram", "YouTube"], "Behind the scenes: laser-scanned circuits bring every track to life in F1 26."),
+        (10, ["X", "TikTok", "YouTube"], "Max Verstappen's pace in F1 26 is UNREAL. Simulated perfection."),
+        (14, ["X", "YouTube", "Instagram"], "Cross-play is finally here! Race friends on any platform."),
+        (18, ["Instagram", "TikTok", "Facebook"], "Show us your best lap times at Spa with the new handling model."),
+        (22, ["X", "YouTube", "Facebook", "Instagram", "TikTok"], "This community is incredible. 5M laps completed in the first 48 hours!"),
+    ],
+}
+
+
+def _generate_post_performance(rng, date_range, posts, title_key=None):
     rows = []
-    for date in date_range:
+    start_date = date_range[0]
+
+    cross_channel = _CROSS_CHANNEL_POSTS.get(title_key, []) if title_key else []
+    cross_dates = {}
+    for day_offset, networks, text in cross_channel:
+        if day_offset < len(date_range):
+            cross_dates.setdefault(day_offset, []).append((networks, text))
+
+    for i, date in enumerate(date_range):
         n_posts = rng.integers(2, 7)
         for _ in range(n_posts):
             network = rng.choice(NETWORKS)
@@ -309,6 +509,39 @@ def _generate_post_performance(rng, date_range, posts):
                 "Video Views": float(video_views),
                 "Engagement Rate (per Impression)": round(engagements / impressions * 100, 4),
             })
+
+        if i in cross_dates:
+            for networks, text in cross_dates[i]:
+                for network in networks:
+                    impressions = int(rng.integers(80_000, 500_000))
+                    eng_base = impressions * rng.uniform(0.02, 0.08)
+                    engagements = int(eng_base)
+                    reactions = int(engagements * rng.uniform(0.4, 0.7))
+                    comments = int(engagements * rng.uniform(0.05, 0.2))
+                    shares = int(engagements * rng.uniform(0.05, 0.15))
+                    saves = int(engagements * rng.uniform(0.01, 0.05))
+                    clicks = int(engagements * rng.uniform(0.05, 0.1))
+                    video_views = int(impressions * rng.uniform(0.2, 0.6)) if rng.random() > 0.3 else 0
+
+                    rows.append({
+                        "Date": date,
+                        "Network": network,
+                        "Content Type": rng.choice(CONTENT_TYPES),
+                        "Post Type": "Post",
+                        "Post": text,
+                        "Link": f"https://example.com/post/{rng.integers(10000, 99999)}",
+                        "Impressions": float(impressions),
+                        "Reach": float(int(impressions * rng.uniform(0.7, 0.95))),
+                        "Potential Reach": float(int(impressions * rng.uniform(1.2, 3.0))),
+                        "Engagements": float(engagements),
+                        "Reactions": float(reactions),
+                        "Comments": float(comments),
+                        "Shares": float(shares),
+                        "Saves": float(saves),
+                        "Post Link Clicks": float(clicks),
+                        "Video Views": float(video_views),
+                        "Engagement Rate (per Impression)": round(engagements / impressions * 100, 4),
+                    })
 
     return pd.DataFrame(rows)
 

@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 
-st.set_page_config(page_title="Content Performance", page_icon="📝", layout="wide")
+st.set_page_config(page_title="Content Performance", layout="wide")
 
 from utils.sidebar import render_sidebar, require_data, apply_theme
 from utils.processors import (
@@ -9,54 +9,141 @@ from utils.processors import (
     get_daily_post_engagement,
     get_posts_for_date,
     get_network_content_performance,
+    get_kpis_safe,
     format_number,
 )
 from utils.charts import daily_engagement_timeline_with_hover, platform_bar, CHART_CONFIG
-from utils.theme import render_kpi_card, render_post_card, render_section_header
+from utils.theme import render_kpi_card, render_post_card, render_section_header, render_nav_header
 
 filters = render_sidebar()
 apply_theme()
 require_data()
 
-st.title("📝 Content Performance")
-st.markdown("*How different content types and themes performed*")
-st.divider()
+render_nav_header("Content Performance", "How different content types and themes performed")
+st.markdown("")
 
-pp = apply_filters(st.session_state["post_performance"], filters)
+pp_full = st.session_state["post_performance"]
+pp = apply_filters(pp_full, filters)
+prof_raw = st.session_state.get("profile_performance")
+prof = apply_filters(prof_raw, filters) if prof_raw is not None else None
 
-exclude_types = ["Story", "@Reply", "'@Reply"]
-pp_filtered = pp[~pp["Post Type"].isin(exclude_types)]
-k1, k2, k3, k4, k5 = st.columns(5)
-with k1:
-    render_kpi_card("Total Impressions", format_number(pp_filtered["Impressions"].sum()))
-with k2:
-    render_kpi_card("Total Engagements", format_number(pp_filtered["Engagements"].sum()))
-with k3:
-    render_kpi_card("Video Views", format_number(pp_filtered["Video Views"].sum()))
-with k4:
-    render_kpi_card("Reactions", format_number(pp_filtered["Reactions"].sum()))
-with k5:
-    render_kpi_card("Reach", format_number(pp_filtered["Reach"].sum()))
+kpis = get_kpis_safe(pp, prof)
 
-k6, k7, k8, k9, k10 = st.columns(5)
-with k6:
-    render_kpi_card("Comments", format_number(pp_filtered["Comments"].sum()))
-with k7:
-    render_kpi_card("Shares", format_number(pp_filtered["Shares"].sum()))
-with k8:
-    render_kpi_card("Link Clicks", format_number(pp_filtered["Post Link Clicks"].sum()))
-with k9:
-    render_kpi_card("Total Posts", format_number(len(pp_filtered)))
-with k10:
-    avg_eng = pp_filtered["Engagements"].mean() if len(pp_filtered) > 0 else 0
-    render_kpi_card("Avg Eng / Post", format_number(int(avg_eng)))
 
-st.divider()
+def _compute_period_deltas(pp_current, pp_full_df):
+    current_start = pp_current["Date"].min()
+    current_end = pp_current["Date"].max()
+    period_days = (current_end - current_start).days + 1
+    prior_end = current_start - pd.Timedelta(days=1)
+    prior_start = prior_end - pd.Timedelta(days=period_days - 1)
+    pp_prior = pp_full_df[
+        (pp_full_df["Date"] >= prior_start) & (pp_full_df["Date"] <= prior_end)
+    ]
+    if len(pp_prior) == 0:
+        return {}, 0
+    metrics = {
+        "total_impressions": ("Impressions", "sum"),
+        "total_engagements": ("Engagements", "sum"),
+        "total_video_views": ("Video Views", "sum"),
+        "total_posts": (None, "count"),
+        "total_comments": ("Comments", "sum"),
+        "total_shares": ("Shares", "sum"),
+    }
+    if "Reach" in pp_current.columns:
+        metrics["total_reach"] = ("Reach", "sum")
+    if "Saves" in pp_current.columns:
+        metrics["total_saves"] = ("Saves", "sum")
+    if "Post Link Clicks" in pp_current.columns:
+        metrics["total_link_clicks"] = ("Post Link Clicks", "sum")
+    deltas = {}
+    for key, (col, agg) in metrics.items():
+        if agg == "count":
+            v_prior, v_current = len(pp_prior), len(pp_current)
+        else:
+            v_prior, v_current = pp_prior[col].sum(), pp_current[col].sum()
+        if v_prior > 0:
+            deltas[key] = ((v_current - v_prior) / v_prior) * 100
+        else:
+            deltas[key] = 0.0
+    return deltas, period_days
+
+
+deltas, period_days = _compute_period_deltas(pp, pp_full)
+
+date_min = pp["Date"].min().strftime("%b %d, %Y")
+date_max = pp["Date"].max().strftime("%b %d, %Y")
+render_section_header(f"Reporting Period: {date_min} — {date_max}")
+
+
+def _delta(key):
+    return deltas.get(key)
+
+
+c1, c2, c3, c4, c5 = st.columns(5)
+with c1:
+    render_kpi_card("Total Impressions", format_number(kpis["total_impressions"]), _delta("total_impressions"),
+                    help="Total number of times your content was displayed on screen, including repeat views by the same user.")
+with c2:
+    render_kpi_card("Total Engagements", format_number(kpis["total_engagements"]), _delta("total_engagements"),
+                    help="Sum of all interactions (likes, comments, shares, clicks, saves) across your posts.")
+with c3:
+    render_kpi_card("Engagement Rate", f"{kpis['avg_engagement_rate']:.2f}%",
+                    help="Average engagements per impression, expressed as a percentage. Higher = more compelling content.")
+with c4:
+    render_kpi_card("Video Views", format_number(kpis.get("total_video_views", pp["Video Views"].sum())), _delta("total_video_views"),
+                    help="Total number of times your videos were watched. View thresholds vary by platform (e.g. 3s on most).")
+with c5:
+    growth = kpis.get("audience_growth", 0)
+    render_kpi_card("Audience Growth", f"{'+' if growth > 0 else ''}{format_number(growth)}",
+                    help="Net change in followers/subscribers during this period.")
+
+st.markdown("")
+c6, c7, c8, c9, c10 = st.columns(5)
+with c6:
+    render_kpi_card("Total Posts", f"{int(kpis['total_posts']):,}", _delta("total_posts"),
+                    help="Number of posts published across all platforms in the selected date range.")
+with c7:
+    render_kpi_card("Total Reach", format_number(kpis.get("total_reach", 0)), _delta("total_reach"),
+                    help="Number of unique users who saw your content at least once. Unlike impressions, each person is counted only once.")
+with c8:
+    render_kpi_card("Comments", format_number(kpis.get("total_comments", 0)), _delta("total_comments"),
+                    help="Total comments and replies left on your posts across all platforms.")
+with c9:
+    render_kpi_card("Shares", format_number(kpis.get("total_shares", 0)), _delta("total_shares"),
+                    help="Number of times users shared your content (retweets, reposts, shares, sends).")
+with c10:
+    aud = kpis.get("total_audience", 0)
+    render_kpi_card("Total Audience", format_number(aud) if aud > 0 else "N/A",
+                    help="Current total follower/subscriber count across all connected platforms.")
+
+st.markdown("")
+c11, c12, c13, c14, c15 = st.columns(5)
+with c11:
+    render_kpi_card("Saves", format_number(kpis.get("total_saves", 0)), _delta("total_saves"),
+                    help="Number of times users bookmarked or saved your posts for later. A strong signal of high-value content.")
+with c12:
+    render_kpi_card("Link Clicks", format_number(kpis.get("total_link_clicks", 0)), _delta("total_link_clicks"),
+                    help="Number of clicks on links included in your posts (e.g. URLs, CTAs, link stickers).")
+with c13:
+    vvr = kpis.get("video_view_rate", 0)
+    render_kpi_card("Video View Rate", f"{vvr:.1f}%" if vvr > 0 else "N/A",
+                    help="Percentage of impressions that resulted in a video view. Higher = stronger stop-scroll power.")
+with c14:
+    st.empty()
+with c15:
+    st.empty()
+
+if period_days > 0 and len(deltas) > 0:
+    st.caption(f"*Trends vs. prior {period_days}-day period*")
+else:
+    st.caption("*No prior period data available for trend comparison*")
+
+st.markdown("")
 
 # --- Daily Impressions Timeline ---
 render_section_header("Daily Impressions Timeline", "Click a point to see what was posted that day.")
 daily = get_daily_post_engagement(pp)
-fig = daily_engagement_timeline_with_hover(daily)
+fig = daily_engagement_timeline_with_hover(daily, title="")
 event = st.plotly_chart(
     fig,
     use_container_width=True,
@@ -99,73 +186,7 @@ if selected_date is not None:
         else:
             st.caption("No posts on this day.")
 
-st.divider()
-
-# --- Network Performance ---
-render_section_header("Performance by Platform")
-net_perf = get_network_content_performance(pp)
-
-fig = platform_bar(net_perf, "Engagements", "Total Engagements by Platform")
-st.plotly_chart(fig, use_container_width=True, config=CHART_CONFIG)
-
-st.dataframe(
-    net_perf.style.format(
-        {
-            "Impressions": "{:,.0f}",
-            "Engagements": "{:,.0f}",
-            "Reactions": "{:,.0f}",
-            "Comments": "{:,.0f}",
-            "Shares": "{:,.0f}",
-            "Video_Views": "{:,.0f}",
-        }
-    ),
-    use_container_width=True,
-    hide_index=True,
-)
-
-st.divider()
-
-# --- Tag/Theme Analysis ---
-render_section_header("Performance by Content Theme")
-
-if "Tags" in pp.columns:
-    tagged = pp[pp["Tags"].notna() & (pp["Tags"].str.strip() != "")].copy()
-    if len(tagged) > 0:
-        tag_perf = (
-            tagged.groupby("Tags")
-            .agg(
-                Posts=("Engagements", "count"),
-                Impressions=("Impressions", "sum"),
-                Engagements=("Engagements", "sum"),
-                Reactions=("Reactions", "sum"),
-                Comments=("Comments", "sum"),
-                Shares=("Shares", "sum"),
-            )
-            .reset_index()
-            .sort_values("Engagements", ascending=False)
-        )
-        tag_perf["Avg Engagements"] = (tag_perf["Engagements"] / tag_perf["Posts"]).round(0)
-
-        st.dataframe(
-            tag_perf.style.format(
-                {
-                    "Impressions": "{:,.0f}",
-                    "Engagements": "{:,.0f}",
-                    "Avg Engagements": "{:,.0f}",
-                    "Reactions": "{:,.0f}",
-                    "Comments": "{:,.0f}",
-                    "Shares": "{:,.0f}",
-                }
-            ),
-            use_container_width=True,
-            hide_index=True,
-        )
-    else:
-        st.caption("No tagged posts found in filtered data.")
-else:
-    st.caption("No Tags column in post data.")
-
-st.divider()
+st.markdown("")
 
 # --- Top Posts (Grouped Cross-Channel) ---
 render_section_header("Top Posts (Cross-Channel)", "Identical posts across channels are grouped. Expand for per-channel metrics.")
@@ -185,10 +206,26 @@ grouped = (
     )
     .reset_index()
     .sort_values("Combined_Impressions", ascending=False)
-    .head(10)
+    .reset_index(drop=True)
 )
 
-for rank, (_, grp) in enumerate(grouped.iterrows(), 1):
+POSTS_PER_PAGE = 5
+total_posts_count = len(grouped)
+total_pages = max(1, (total_posts_count + POSTS_PER_PAGE - 1) // POSTS_PER_PAGE)
+
+if "cp_posts_page" not in st.session_state:
+    st.session_state["cp_posts_page"] = 1
+current_page = st.session_state["cp_posts_page"]
+current_page = min(current_page, total_pages)
+
+start_idx = (current_page - 1) * POSTS_PER_PAGE
+end_idx = min(start_idx + POSTS_PER_PAGE, total_posts_count)
+page_slice = grouped.iloc[start_idx:end_idx]
+
+st.caption(f"Showing {start_idx + 1}–{end_idx} of {total_posts_count} posts")
+
+for rank_offset, (_, grp) in enumerate(page_slice.iterrows()):
+    rank = start_idx + rank_offset + 1
     post_text = str(grp["_post_key"])[:200]
     date_str = grp["_date_key"].strftime("%b %d, %Y")
     channels = grp["Channels"]
@@ -234,7 +271,58 @@ for rank, (_, grp) in enumerate(grouped.iterrows(), 1):
                 if link and link not in ("", "nan"):
                     st.markdown(f"[View Post on {row['Network']} ↗]({link})")
 
-st.divider()
+if total_pages > 1:
+    st.markdown("")
+    page_cols = st.columns([1, 1, 3, 1, 1])
+    with page_cols[0]:
+        if st.button("« First", disabled=current_page == 1, key="cp_posts_first", use_container_width=True):
+            st.session_state["cp_posts_page"] = 1
+            st.rerun()
+    with page_cols[1]:
+        if st.button("‹ Prev", disabled=current_page == 1, key="cp_posts_prev", use_container_width=True):
+            st.session_state["cp_posts_page"] = current_page - 1
+            st.rerun()
+    with page_cols[2]:
+        st.markdown(
+            f'<div style="text-align:center; padding:6px 0; font-size:0.9rem;">'
+            f'Page <strong>{current_page}</strong> of <strong>{total_pages}</strong>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+    with page_cols[3]:
+        if st.button("Next ›", disabled=current_page == total_pages, key="cp_posts_next", use_container_width=True):
+            st.session_state["cp_posts_page"] = current_page + 1
+            st.rerun()
+    with page_cols[4]:
+        if st.button("Last »", disabled=current_page == total_pages, key="cp_posts_last", use_container_width=True):
+            st.session_state["cp_posts_page"] = total_pages
+            st.rerun()
+
+st.markdown("")
+
+# --- Network Performance ---
+render_section_header("Performance by Platform")
+net_perf = get_network_content_performance(pp)
+
+fig = platform_bar(net_perf, "Engagements", "Total Engagements by Platform")
+st.plotly_chart(fig, use_container_width=True, config=CHART_CONFIG)
+
+st.dataframe(
+    net_perf.style.format(
+        {
+            "Impressions": "{:,.0f}",
+            "Engagements": "{:,.0f}",
+            "Reactions": "{:,.0f}",
+            "Comments": "{:,.0f}",
+            "Shares": "{:,.0f}",
+            "Video_Views": "{:,.0f}",
+        }
+    ),
+    use_container_width=True,
+    hide_index=True,
+)
+
+st.markdown("")
 
 # --- Full Post Table ---
 render_section_header("All Posts")
