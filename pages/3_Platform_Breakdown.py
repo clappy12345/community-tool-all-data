@@ -9,7 +9,6 @@ from utils.processors import (
     format_number,
 )
 from utils.charts import (
-    platform_bar,
     platform_share_pie,
     daily_platform_lines,
     CHART_CONFIG,
@@ -65,13 +64,6 @@ with col1:
 with col2:
     fig = platform_share_pie(platform, "Engagements", "Share of Engagements")
     st.plotly_chart(fig, use_container_width=True, config=CHART_CONFIG)
-
-st.markdown("")
-
-# --- Engagement Rate by Platform ---
-render_section_header("Engagement Rate by Platform")
-fig = platform_bar(platform, "Engagement Rate", "Engagement Rate by Platform (%)")
-st.plotly_chart(fig, use_container_width=True, config=CHART_CONFIG)
 
 st.markdown("")
 

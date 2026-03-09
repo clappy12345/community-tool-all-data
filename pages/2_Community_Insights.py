@@ -15,15 +15,10 @@ from utils.processors import (
 from utils.charts import (
     looker_sentiment_timeline,
     topic_percentage_bar,
-    theme_bar,
-    theme_sentiment_bar,
     CHART_CONFIG,
     SENTIMENT_COLORS,
 )
 from utils.ai_analysis import (
-    discover_themes,
-    classify_messages,
-    get_theme_summary,
     generate_conversation_drivers,
     discover_topic_buckets,
     load_saved_topic_buckets,
@@ -319,77 +314,6 @@ with tab_ai:
                 key="dl_drivers",
             )
 
-        st.markdown("")
-
-        # Theme Discovery
-        render_section_header("AI Theme Discovery",
-                              "Automatically discover what topics the community is discussing.")
-
-        combined_messages = combine_community_messages(aff, inbox_raw)
-        if len(combined_messages) == 0:
-            combined_messages = None
-
-        themes_ready = "themes" in st.session_state and st.session_state["themes"] is not None
-
-        col_btn, col_status = st.columns([1, 3])
-        with col_btn:
-            run_ai = st.button(
-                "Discover Themes" if not themes_ready else "Re-run Analysis",
-                type="primary" if not themes_ready else "secondary",
-                use_container_width=True,
-            )
-        with col_status:
-            if themes_ready:
-                n_themes = len(st.session_state["themes"])
-                st.success(f"Analysis complete — {n_themes} themes discovered")
-            else:
-                st.caption("Requires Google API key in .env file")
-
-        if run_ai and combined_messages is not None:
-            with st.spinner("Analyzing community conversations with AI..."):
-                themes = discover_themes(combined_messages, n_sample=600)
-                if themes:
-                    st.session_state["themes"] = themes
-                    classified = classify_messages(combined_messages, themes)
-                    st.session_state["classified_messages"] = classified
-                    st.rerun()
-
-        if themes_ready and "classified_messages" in st.session_state:
-            classified = st.session_state["classified_messages"]
-            theme_summary = get_theme_summary(classified)
-
-            if theme_summary is not None:
-                col1, col2 = st.columns(2)
-                with col1:
-                    fig = theme_bar(theme_summary, "Most Discussed Topics")
-                    st.plotly_chart(fig, use_container_width=True, config=CHART_CONFIG)
-                with col2:
-                    fig = theme_sentiment_bar(theme_summary, "Sentiment by Topic")
-                    st.plotly_chart(fig, use_container_width=True, config=CHART_CONFIG)
-
-                render_section_header("Theme Details")
-                themes_list = st.session_state["themes"]
-                for theme in themes_list:
-                    name = theme["name"]
-                    count = theme_summary[theme_summary["Theme"] == name]["Count"].values
-                    count_str = f" ({format_number(count[0])} messages)" if len(count) > 0 else ""
-                    lean = theme.get("sentiment_lean", "mixed")
-                    lean_label = {"positive": "[+]", "negative": "[-]", "mixed": "[~]"}.get(lean, "")
-
-                    with st.expander(f"{lean_label} **{name}**{count_str}"):
-                        st.markdown(f"*{theme['description']}*")
-                        st.caption(f"Sentiment lean: {lean} · Keywords: {', '.join(theme['keywords'][:8])}")
-
-                        theme_msgs = classified[classified["Theme"] == name]
-                        if len(theme_msgs) > 0:
-                            sample = theme_msgs.sample(min(5, len(theme_msgs)), random_state=42)
-                            for _, msg in sample.iterrows():
-                                render_message_card(
-                                    network="",
-                                    source="",
-                                    text=str(msg["Text"])[:200],
-                                    sentiment=msg["Sentiment"],
-                                )
     else:
         st.info("Upload Affogata or Inbox data to use AI analysis.")
 
