@@ -101,26 +101,94 @@ TITLE_POSTS = {
 
 TITLE_COMMUNITY = {
     "NHL": [
+        # Skating / Movement
         "The skating feels so much smoother this year, huge improvement over last year",
-        "Why is Be A Pro still so bare bones? They promised changes",
-        "EASHL is the best mode in the game hands down, love playing with my squad",
-        "Franchise mode scouting update is exactly what we needed",
-        "Cross-play is amazing, finally can play with my Xbox friends on PS5",
+        "Edge work and pivots feel incredible, the skating engine is a game changer",
+        "Player acceleration is way better, you can actually feel the speed difference between 85 and 95",
+        "The stride animations are gorgeous, every skate push looks realistic now",
+        "Momentum matters so much more this year, no more instant direction changes",
+        "Agility feels so much more responsive, the skating is finally where it needs to be",
+        # Goalies
         "Goalies are still broken, they let in the same weak goals every game",
+        "The butterfly saves look incredible this year, goaltending is so much better",
+        "Goalie movement side to side feels way more realistic, blocker saves are crisp",
+        "My goaltender keeps letting in five hole goals, is this a known glove issue?",
+        "Finally the saves feel realistic, goalies actually track the puck properly now",
+        "Goalie desperation saves are insane, butterfly slides across the crease are chef's kiss",
+        # Pokechecks / Stick Play
+        "The poke check is way too OP, every game is just spam pokecheck city",
+        "Stick lift timing is perfect now, stick play actually requires skill",
+        "Poke checking feels balanced, not like the tripping fest it was in 25",
+        "Stick check spam is still an issue, half my penalties are from slash calls",
+        "Love the new poke check risk/reward, stick play matters more than ever",
+        "The stick lift mechanic finally feels fair, no more phantom tripping calls",
+        # Hitting / Physicality
+        "Body checks along the boards are BRUTAL this year, the hitting feels so satisfying",
+        "The hip check animation is hilarious, big hit physics are insane",
+        "Fighting is actually fun again, the new fight engine is great",
+        "Board play and body checking feel way more impactful, hitting is finally rewarding",
+        "The boarding penalties are too strict, every hit near the boards is a call now",
+        "Love how physical this game feels, every bodycheck has real weight behind it",
+        # HUT / Ultimate Team
         "HUT is pay to win as always, nothing new there",
-        "The new deking system takes time to learn but it's so rewarding",
-        "Best NHL game in years, the Frostbite engine makes everything look incredible",
-        "Can we please get more celebration options? The current ones are stale",
-        "Board play physics are insane, you actually feel the hits now",
-        "Why does my BAP player feel so slow even at 95 speed?",
-        "The crowd noise and atmosphere is unreal, feels like a real broadcast",
-        "Penalty system is much better, no more phantom tripping calls",
-        "Still waiting for that GM Connected mode, come on EA",
-        "World of Chel customization this year is top tier",
-        "Servers have been laggy all week, please fix this EA",
         "Just pulled a 99 McDavid in HUT, best day ever!",
+        "Pack odds in Ultimate Team are terrible, spent 200k coins and got nothing",
+        "HUT Rivals rewards are much better this year, rivals is actually worth grinding",
+        "Squad Battles difficulty is all over the place, one game easy next game impossible",
+        "The HUT auction house prices are insane right now, MSP cards going for millions",
+        "Champions in HUT is way too sweaty, rush mode is more fun for casual players",
+        "New HUT lineup building is addicting, love the team chemistry system",
+        # EASHL / Online Modes
+        "EASHL is the best mode in the game hands down, love playing with my squad",
+        "World of Chel customization this year is top tier",
+        "Club games in EASHL are so much fun, the matchmaking is actually decent now",
+        "Drop-in games are toxic as always, need a better ranked system for Chel",
+        "EASHL needs more unlockables, World of Chel gets stale after a few weeks",
+        "The online versus mode is finally stable, matchmaking finds games fast",
+        # Be A Pro / Franchise
+        "Why is Be A Pro still so bare bones? They promised changes",
+        "Franchise mode scouting update is exactly what we needed",
+        "Why does my BAP player feel so slow even at 95 speed?",
         "Franchise mode trade logic is still terrible, AI offers garbage deals",
+        "Be A Pro story mode is too short, needs way more content and draft scenarios",
+        "The scouting overhaul in franchise mode is amazing, draft day feels realistic",
+        "BAP interviews and media stuff is cool but gets repetitive by season 2",
+        "Franchise simulation engine is so much better, trades actually make sense now",
+        # Servers / Performance
+        "Servers have been laggy all week, please fix this EA",
+        "The input delay online is awful, every game feels like I'm on a half-second lag",
+        "Game crashed three times today during HUT Champs, lost all my progress",
+        "Server disconnects mid-game should not count as a loss, this is ridiculous",
+        "FPS drops on PS5 during big scrums in front of the net, frame rate tanks",
+        "Latency in online games makes the game unplayable some nights, fix your servers",
+        "Desync issues are ruining ranked games, both players see different things",
+        # Graphics / Presentation
+        "The crowd noise and atmosphere is unreal, feels like a real broadcast",
+        "Best NHL game in years, the Frostbite engine makes everything look incredible",
+        "The arena atmospheres are so detailed, every NHL arena feels unique",
+        "Commentary is much improved but still repetitive by week two",
+        "Jersey physics and ice reflections look stunning, the visuals are next level",
+        "The replay angles and cutscenes between periods are a nice touch",
+        "Graphics on the ice surface deterioration throughout the game are beautiful",
+        "Presentation package feels like a real NBC/ESPN broadcast now",
+        # AI / CPU Behavior
+        "CPU teammate AI is absolutely braindead, they just stand around in the D-zone",
+        "Superstar difficulty is cheating, the AI makes perfect plays every time",
+        "AI on All-Star is too easy now, but Superstar is too hard, need something between",
+        "The computer players never backcheck, teammate AI needs a serious fix",
+        "CPU difficulty sliders help but shouldn't be needed to make the AI fair",
+        "AI defenders finally pinch at the right times, the CPU behavior is way smarter",
+        # General / Cross-topic
+        "Cross-play is amazing, finally can play with my Xbox friends on PS5",
+        "The new deking system takes time to learn but it's so rewarding",
+        "Can we please get more celebration options? The current ones are stale",
+        "Still waiting for that GM Connected mode, come on EA",
         "The passing in this game is so crisp, love the new mechanics",
+        "This is the best hockey game in a decade, everything just clicks",
+        "The soundtrack is fire, love the playlist they picked for this year",
+        "Cross-gen version should not exist, it's holding the game back",
+        "Why do my settings keep resetting every time I boot the game?",
+        "Loving the new faceoff system, feels way more strategic and skill-based",
     ],
     "UFC": [
         "The striking feels so much more fluid this year, huge improvement",
@@ -185,6 +253,26 @@ TITLE_INBOX = {
         "The soundtrack is fire this year, great song choices",
         "Servers need improvement, too much lag in competitive modes",
         "Great job on the arena atmospheres, they feel so alive",
+        "The poke check spam online is unbearable, every game is just stick check after stick check",
+        "Goaltending AI is terrible, my goalie just watches five hole shots go in",
+        "Body checking feels amazing this year, the hitting is so satisfying",
+        "Butterfly saves and blocker reactions are actually realistic now, goalies feel right",
+        "The CPU AI is so dumb on defense, teammate AI never covers the passing lanes",
+        "Pack pulls in HUT are rigged, opened 50 packs and best was an 84 overall",
+        "EASHL drop-in is a mess, randoms just chase the puck and never pass",
+        "Franchise mode trade deadline is exciting with the new scouting system",
+        "Input delay and latency make online games unplayable, fix the servers",
+        "The commentary and crowd atmosphere during playoff games is incredible",
+        "Speed and acceleration feel much more realistic, skating engine is elite",
+        "Superstar difficulty is broken, the AI makes impossible plays every shift",
+        "FPS drops during fights and scrums need to be patched ASAP",
+        "The ice surface graphics and arena details are absolutely gorgeous",
+        "Can you nerf the poke check already? Tripping penalties mean nothing when you spam it",
+        "HUT Squad Battles rewards need a serious buff, not worth the grind",
+        "The edge work in tight spaces is so smooth, pivot skating feels natural",
+        "Franchise mode draft class quality is way better this year",
+        "World of Chel ranked matchmaking should factor in club skill, not just record",
+        "Please fix the desync issues in online versus, happens every other game",
     ],
     "UFC": [
         "Love the new game! Been fighting non-stop since launch",
@@ -584,7 +672,7 @@ def _generate_affogata(rng, date_range, community_messages):
     weights = [0.35, 0.20, 0.45]
 
     for date in date_range:
-        n_msgs = rng.integers(30, 80)
+        n_msgs = rng.integers(60, 150)
         for _ in range(n_msgs):
             hour = rng.integers(0, 24)
             minute = rng.integers(0, 60)
@@ -625,7 +713,7 @@ def _generate_inbox(rng, date_range, inbox_messages):
     weights = [0.30, 0.25, 0.45]
 
     for date in date_range:
-        n_msgs = rng.integers(10, 35)
+        n_msgs = rng.integers(25, 65)
         for _ in range(n_msgs):
             hour = rng.integers(0, 24)
             minute = rng.integers(0, 60)

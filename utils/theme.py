@@ -62,8 +62,12 @@ _GLOBAL_CSS = """
 }
 
 /* ── Hide Streamlit chrome ─────────────────────────────────── */
-#MainMenu, footer, header[data-testid="stHeader"] { visibility: hidden; height: 0; }
+#MainMenu, footer { visibility: hidden; height: 0; }
 div[data-testid="stDecoration"] { display: none; }
+header[data-testid="stHeader"] {
+    background: transparent !important;
+    backdrop-filter: none !important;
+}
 
 /* ── Custom scrollbar ──────────────────────────────────────── */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
@@ -598,6 +602,70 @@ div[data-testid="stMetric"]:hover { border-color: var(--border-hover); }
     opacity: 0.5;
     margin-top: 20px;
     letter-spacing: 0.3px;
+}
+
+/* ── Multi-title card ─────────────────────────────────────── */
+.t-title-card {
+    background: var(--bg-card);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    padding: 20px 24px;
+    text-align: center;
+    transition: transform 0.2s ease, border-color 0.2s ease;
+    animation: fadeInUp 0.35s ease both;
+}
+.t-title-card:hover {
+    transform: translateY(-2px);
+    border-color: var(--border-hover);
+}
+.t-title-card-name {
+    font-size: 1.2rem;
+    font-weight: 800;
+    color: var(--text-heading);
+    margin-bottom: 4px;
+}
+.t-title-card-date {
+    font-size: 0.72rem;
+    color: var(--text-secondary);
+    margin-bottom: 10px;
+}
+.t-title-card-kpi {
+    display: flex;
+    justify-content: space-between;
+    padding: 5px 0;
+    border-top: 1px solid var(--border-subtle);
+}
+.t-title-card-kpi-label {
+    font-size: 0.72rem;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-weight: 600;
+}
+.t-title-card-kpi-value {
+    font-size: 0.88rem;
+    font-weight: 700;
+    color: var(--accent);
+}
+
+/* ── Keyboard shortcut hint ───────────────────────────────── */
+.t-kb-hint {
+    text-align: center;
+    font-size: 0.65rem;
+    color: var(--text-secondary);
+    opacity: 0.45;
+    margin-top: 8px;
+    letter-spacing: 0.3px;
+}
+.t-kb-hint kbd {
+    background: rgba(0,180,216,0.1);
+    color: var(--accent);
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-size: 0.62rem;
+    font-weight: 600;
 }
 </style>
 """

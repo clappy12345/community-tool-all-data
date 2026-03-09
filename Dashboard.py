@@ -456,4 +456,5 @@ else:
         ("", "Compare Periods", "Side-by-side date range comparison"),
         ("", "Ask the Data", "Natural-language questions via Gemini"),
         ("", "Full Report", "AI-generated executive summary and narrative"),
+        ("", "Multi-Title", "Compare NHL, UFC, and F1 side-by-side"),
     ])

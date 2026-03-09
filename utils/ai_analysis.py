@@ -514,23 +514,27 @@ def discover_topic_buckets(messages_df, text_col="Text", n_sample=400):
 
     prompt = f"""Analyze these community messages about {ai_context}.
 
-Identify the 8-10 most prominent conversation topics.
+Identify exactly 10 prominent conversation topics. You MUST return all 10.
 
-Return a JSON object where each key is a short topic name (2-4 words) and each value is an array of 5-8 lowercase keywords that identify messages belonging to that topic.
+Return a JSON object where each key is a short topic name (2-4 words) and each value is an array of 4-6 lowercase keywords that identify messages belonging to that topic.
 
-Keep it concise — short topic names, short keyword lists.
+Rules:
+- Exactly 10 topics, no fewer.
+- Topic names: 2-4 words max.
+- Keywords: 4-6 per topic, all lowercase, single words or short phrases.
+- No overlap between topic keywords.
 
-Example:
-{{"Skating": ["skating", "skate", "speed", "momentum", "agility"], "Servers": ["server", "lag", "disconnect", "crash"]}}
+Example format:
+{{"Skating": ["skating", "skate", "speed", "momentum"], "Servers": ["server", "lag", "disconnect", "crash"]}}
 
 MESSAGES:
 {message_block}"""
 
     result = _gemini_call(
         prompt,
-        "Return valid compact JSON only — a single object mapping topic names to keyword arrays. No extra text.",
+        "Return valid compact JSON only — a single object mapping topic names to keyword arrays. Exactly 10 topics. No extra text.",
         temperature=0.3,
-        max_tokens=2000,
+        max_tokens=4000,
         json_mode=True,
     )
     if result is None:
@@ -544,17 +548,17 @@ MESSAGES:
     st.warning("Gemini returned an incomplete response. Retrying with a smaller sample...")
     smaller_sample = sample.head(200)
     message_block_small = "\n---\n".join(t[:150] for t in smaller_sample.tolist())
-    retry_prompt = f"""Identify 8 conversation topics from these messages about {ai_context}.
-Return compact JSON: {{"Topic Name": ["keyword1", "keyword2", ...], ...}}
+    retry_prompt = f"""Identify exactly 10 conversation topics from these messages about {ai_context}.
+Return compact JSON with exactly 10 keys: {{"Topic Name": ["keyword1", "keyword2", ...], ...}}
 
 MESSAGES:
 {message_block_small}"""
 
     result2 = _gemini_call(
         retry_prompt,
-        "Return valid compact JSON only. No markdown, no extra text.",
+        "Return valid compact JSON only. Exactly 10 topics. No markdown, no extra text.",
         temperature=0.2,
-        max_tokens=1500,
+        max_tokens=4000,
         json_mode=True,
     )
     if result2 is None:
@@ -572,22 +576,34 @@ def _parse_bucket_json(text):
     """Try to parse bucket JSON, handling truncated responses."""
     if not text:
         return None
+
+    cleaned = text.strip()
+    if cleaned.startswith("```"):
+        cleaned = cleaned.split("\n", 1)[-1]
+    if cleaned.endswith("```"):
+        cleaned = cleaned.rsplit("```", 1)[0]
+    cleaned = cleaned.strip()
+
     try:
-        parsed = json.loads(text)
+        parsed = json.loads(cleaned)
         if isinstance(parsed, dict) and all(isinstance(v, list) for v in parsed.values()):
-            return parsed
+            if len(parsed) >= 5:
+                return parsed
     except json.JSONDecodeError:
         pass
 
-    # Try to salvage truncated JSON by closing open brackets
-    patched = text.rstrip()
-    for closer in ('"', "]", "}"):
+    # Truncated JSON recovery: find the last complete key-value pair
+    last_good = cleaned.rfind("]")
+    if last_good > 0:
+        candidate = cleaned[:last_good + 1].rstrip().rstrip(",") + "}"
         try:
-            parsed = json.loads(patched + closer)
+            parsed = json.loads(candidate)
             if isinstance(parsed, dict):
-                return {k: v for k, v in parsed.items() if isinstance(v, list)}
+                result = {k: v for k, v in parsed.items() if isinstance(v, list)}
+                if len(result) >= 5:
+                    return result
         except json.JSONDecodeError:
-            patched += closer
+            pass
 
     return None
 

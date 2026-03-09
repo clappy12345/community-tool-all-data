@@ -1,3 +1,5 @@
+from datetime import date as _date_type
+
 import pandas as pd
 import streamlit as st
 from utils.data_loader import (
@@ -44,8 +46,49 @@ _CLEAR_KEYS = [
 ]
 
 
+def _consume_url_params():
+    """On first load, apply URL query params to session state."""
+    if st.session_state.get("_url_consumed"):
+        return
+    st.session_state["_url_consumed"] = True
+    try:
+        params = st.query_params
+        url_title = params.get("title")
+        if url_title and url_title in TITLES:
+            st.session_state["active_title"] = url_title
+        url_start = params.get("start")
+        url_end = params.get("end")
+        if url_start and url_end:
+            st.session_state["_url_date_start"] = _date_type.fromisoformat(url_start)
+            st.session_state["_url_date_end"] = _date_type.fromisoformat(url_end)
+        url_platforms = params.get("platform")
+        if url_platforms:
+            st.session_state["_url_platforms"] = [
+                p.strip() for p in url_platforms.split(",") if p.strip()
+            ]
+    except Exception:
+        pass
+
+
+def _write_url_params(title_key, filters):
+    """Keep URL query params in sync with current filter state."""
+    try:
+        st.query_params["title"] = title_key
+        if "date_range" in filters and filters["date_range"]:
+            dr = filters["date_range"]
+            if isinstance(dr, (list, tuple)) and len(dr) == 2:
+                st.query_params["start"] = str(dr[0])
+                st.query_params["end"] = str(dr[1])
+        if "networks" in filters and filters["networks"]:
+            st.query_params["platform"] = ",".join(filters["networks"])
+    except Exception:
+        pass
+
+
 def render_sidebar():
     with st.sidebar:
+        _consume_url_params()
+
         if "active_title" not in st.session_state:
             st.session_state["active_title"] = DEFAULT_TITLE
 
@@ -86,11 +129,17 @@ def render_sidebar():
             max_date = pp["Date"].max().date()
 
             if "filter_date_range" not in st.session_state:
-                st.session_state["filter_date_range"] = (min_date, max_date)
+                url_start = st.session_state.pop("_url_date_start", None)
+                url_end = st.session_state.pop("_url_date_end", None)
+                if url_start and url_end:
+                    url_start = max(url_start, min_date)
+                    url_end = min(url_end, max_date)
+                    st.session_state["filter_date_range"] = (url_start, url_end)
+                else:
+                    st.session_state["filter_date_range"] = (min_date, max_date)
 
             date_range = st.date_input(
                 "Date Range",
-                value=st.session_state["filter_date_range"],
                 min_value=min_date,
                 max_value=max_date,
                 key="filter_date_range",
@@ -107,11 +156,15 @@ def render_sidebar():
             all_networks = sorted(network_set)
 
             if "filter_networks" not in st.session_state:
-                st.session_state["filter_networks"] = all_networks
+                url_platforms = st.session_state.pop("_url_platforms", None)
+                if url_platforms:
+                    valid = [p for p in url_platforms if p in all_networks]
+                    st.session_state["filter_networks"] = valid if valid else all_networks
+                else:
+                    st.session_state["filter_networks"] = all_networks
 
             selected = st.multiselect(
                 "Platforms", all_networks,
-                default=st.session_state["filter_networks"],
                 key="filter_networks",
             )
             filters["networks"] = selected
@@ -415,17 +468,23 @@ def render_sidebar():
         st.markdown("")
         theme = st.toggle("Light mode", value=st.session_state.get("light_mode", False), key="light_mode")
 
+        st.markdown(
+            '<div class="t-kb-hint">Press <kbd>?</kbd> for keyboard shortcuts</div>',
+            unsafe_allow_html=True,
+        )
+
+        # Sync filters to URL for deep linking
+        _write_url_params(selected_key, filters)
+
         return filters
 
 
 def apply_theme():
-    """Inject global CSS (and light-mode overrides if toggled).
-
-    Delegates to utils.theme.inject_global_css() which handles both modes
-    via CSS custom properties.
-    """
+    """Inject global CSS, light-mode overrides, and keyboard shortcuts."""
     from utils.theme import inject_global_css
     inject_global_css()
+    from utils.shortcuts import inject_keyboard_shortcuts
+    inject_keyboard_shortcuts()
 
 
 def require_data():
