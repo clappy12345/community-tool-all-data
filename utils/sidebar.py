@@ -210,8 +210,13 @@ def render_sidebar():
 
                 # ── AI Campaign Phase Detection ──────────────
                 if st.button("Auto-detect campaign phases", use_container_width=True, type="secondary"):
-                    from utils.ai_analysis import detect_campaign_phases
-                    with st.spinner("Analyzing data + searching the web for campaign dates..."):
+                    from utils.ai_analysis import detect_campaign_phases, get_ai_provider as _detect_prov
+                    _spinner_msg = (
+                        "Analyzing data for campaign dates..."
+                        if _detect_prov() == "eadp"
+                        else "Analyzing data + searching the web for campaign dates..."
+                    )
+                    with st.spinner(_spinner_msg):
                         phases = detect_campaign_phases(pp_dates)
                         if phases:
                             st.session_state["detected_phases"] = phases
@@ -463,6 +468,46 @@ def render_sidebar():
                 render_status_row(name, count=len(df), unit=unit)
             else:
                 render_status_row(name)
+
+        # ── AI Provider ──────────────────────────────────────────
+        st.markdown(
+            '<p style="font-size:0.7rem; text-transform:uppercase; letter-spacing:0.8px; '
+            'color:var(--text-secondary); font-weight:600; margin:12px 0 6px 0;">AI Provider</p>',
+            unsafe_allow_html=True,
+        )
+        _AI_PROVIDERS = ["Gemini (API Key)", "EA (EADP)"]
+        _current_provider = st.session_state.get("ai_provider", "gemini")
+        _provider_idx = 1 if _current_provider == "eadp" else 0
+        _selected_provider = st.selectbox(
+            "AI Provider",
+            _AI_PROVIDERS,
+            index=_provider_idx,
+            label_visibility="collapsed",
+            key="_ai_provider_select",
+        )
+        _new_provider = "eadp" if _selected_provider == "EA (EADP)" else "gemini"
+        if _new_provider != _current_provider:
+            st.session_state["ai_provider"] = _new_provider
+            st.rerun()
+        st.session_state["ai_provider"] = _new_provider
+
+        if _new_provider == "gemini":
+            import os
+            _has_key = bool(
+                os.getenv("GOOGLE_API_KEY", "").strip()
+                or os.getenv("GEMINI_API_KEY", "").strip()
+            )
+            if _has_key:
+                st.caption("API key detected")
+            else:
+                st.caption("⚠ No API key — set GOOGLE\\_API\\_KEY in .env")
+        else:
+            import os
+            _has_gw_key = bool(os.getenv("EADP_GATEWAY_API_KEY", "").strip())
+            if _has_gw_key:
+                st.caption("Gateway key detected · EA VPN required")
+            else:
+                st.caption("⚠ No key — set EADP\\_GATEWAY\\_API\\_KEY in .env")
 
         # ── Theme Toggle ─────────────────────────────────────────
         st.markdown("")

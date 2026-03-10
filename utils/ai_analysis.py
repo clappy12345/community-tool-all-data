@@ -7,6 +7,20 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+EADP_BASE_URL = "https://corp-prod-eadp-ai-genai-gateway.data.ea.com/v1"
+EADP_MODELS = [
+    "vertex_ai/gemini-2.5-flash",
+    "azure_ai/gpt-4.1",
+    "bedrock/anthropic.claude-sonnet-4-20250514-v1:0",
+    "azure_ai/gpt-4o",
+    "eadp/openai/gpt-oss-20b",
+]
+EADP_MODEL = EADP_MODELS[0]
+
+
+def get_ai_provider() -> str:
+    return st.session_state.get("ai_provider", "gemini")
+
 
 def get_gemini_client():
     api_key = os.getenv("GOOGLE_API_KEY", "").strip() or os.getenv("GEMINI_API_KEY", "").strip()
@@ -25,14 +39,27 @@ def get_gemini_client():
     return genai.Client(api_key=api_key)
 
 
-def discover_themes(messages_df, text_col="Text", n_sample=500):
-    client = get_gemini_client()
-    if client is None:
-        st.error("No Google API key found. Set GOOGLE_API_KEY in your .env file.")
+def get_eadp_client():
+    from openai import OpenAI
+    api_key = os.getenv("EADP_GATEWAY_API_KEY", "").strip()
+    if not api_key:
+        try:
+            api_key = st.secrets.get("EADP_GATEWAY_API_KEY", "").strip()
+        except Exception:
+            pass
+    if not api_key:
         return None
+    return OpenAI(base_url=EADP_BASE_URL, api_key=api_key)
+
+
+def discover_themes(messages_df, text_col="Text", n_sample=500):
+    if get_ai_provider() == "gemini":
+        client = get_gemini_client()
+        if client is None:
+            st.error("No Google API key found. Set GOOGLE_API_KEY in your .env file.")
+            return None
 
     from utils.titles import get_title_config
-    from google.genai import types
 
     ai_context = get_title_config()["ai_context"]
 
@@ -61,24 +88,17 @@ Return a JSON object with a single key "themes" containing an array of theme obj
 Community Messages:
 {message_block}"""
 
-    try:
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                system_instruction=(
-                    "You are an expert at analyzing gaming community conversations. "
-                    "Return valid JSON only."
-                ),
-                temperature=0.3,
-                response_mime_type="application/json",
-            ),
-        )
-    except Exception as e:
-        st.error(f"Gemini API error: {e}")
+    raw = _gemini_call(
+        prompt,
+        "You are an expert at analyzing gaming community conversations. Return valid JSON only.",
+        temperature=0.3,
+        max_tokens=8000,
+        json_mode=True,
+    )
+    if raw is None:
         return None
 
-    result = json.loads(response.text)
+    result = json.loads(raw)
     themes = result.get("themes", [])
 
     if isinstance(themes, dict):
@@ -267,8 +287,52 @@ def combine_community_messages(aff_df=None, inbox_df=None):
 _combine_community_messages = combine_community_messages
 
 
-def _gemini_call(prompt, system_instruction, temperature=0.3, max_tokens=8000, json_mode=False):
-    """Shared helper for Gemini API calls."""
+_GEMINI_MODELS = ["gemini-2.5-flash", "gemini-2.0-flash"]
+_MAX_RETRIES = 4
+_BASE_DELAY = 5
+
+
+def _eadp_call(prompt, system_instruction, temperature=0.3, max_tokens=8000, json_mode=False):
+    """Call the EA GenAI Gateway via the OpenAI SDK, trying multiple models."""
+    client = get_eadp_client()
+    if client is None:
+        st.error("No EADP Gateway API key found. Set EADP_GATEWAY_API_KEY in your .env file.")
+        return None
+    messages = [
+        {"role": "system", "content": system_instruction},
+        {"role": "user", "content": prompt},
+    ]
+    last_error = None
+    for model in EADP_MODELS:
+        try:
+            response = client.chat.completions.create(
+                model=model,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                messages=messages,
+                stream=False,
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            last_error = e
+            err = str(e)
+            if "not found" in err.lower():
+                continue
+            st.error(f"EA EADP API error ({model}): {e}")
+            return None
+
+    st.error(
+        f"No EADP models are currently available. "
+        f"The shared service may be temporarily down. Last error: {last_error}"
+    )
+    return None
+
+
+def _gemini_call_impl(prompt, system_instruction, temperature=0.3, max_tokens=8000, json_mode=False):
+    """Gemini API call with retry + model fallback."""
+    import time
+    import re
+
     client = get_gemini_client()
     if client is None:
         st.error("No Google API key found. Set GOOGLE_API_KEY in your .env file.")
@@ -282,17 +346,48 @@ def _gemini_call(prompt, system_instruction, temperature=0.3, max_tokens=8000, j
     )
     if json_mode:
         config_kwargs["response_mime_type"] = "application/json"
+    config = types.GenerateContentConfig(**config_kwargs)
 
-    try:
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=prompt,
-            config=types.GenerateContentConfig(**config_kwargs),
-        )
-        return response.text
-    except Exception as e:
-        st.error(f"Gemini API error: {e}")
-        return None
+    for model in _GEMINI_MODELS:
+        for attempt in range(_MAX_RETRIES):
+            try:
+                response = client.models.generate_content(
+                    model=model, contents=prompt, config=config,
+                )
+                return response.text
+            except Exception as e:
+                err = str(e)
+                is_rate_limit = "429" in err or "RESOURCE_EXHAUSTED" in err
+
+                if not is_rate_limit:
+                    st.error(f"Gemini API error: {e}")
+                    return None
+
+                retry_match = re.search(r"retry\s*in\s*([\d.]+)", err, re.IGNORECASE)
+                wait = float(retry_match.group(1)) + 1 if retry_match else _BASE_DELAY * (2 ** attempt)
+
+                if "per_day" in err.lower() or "PerDay" in err:
+                    break
+
+                if attempt < _MAX_RETRIES - 1:
+                    st.toast(f"Rate limited on {model} — retrying in {wait:.0f}s…")
+                    time.sleep(wait)
+
+        st.toast(f"Quota exhausted on {model}, trying next model…")
+
+    st.error(
+        "All Gemini models are rate-limited. The free tier allows ~20 requests/day "
+        "for gemini-2.5-flash. Wait a minute and try again, or upgrade to a paid "
+        "Google AI plan for higher limits."
+    )
+    return None
+
+
+def _gemini_call(prompt, system_instruction, temperature=0.3, max_tokens=8000, json_mode=False):
+    """Provider-aware AI call — dispatches to EADP or Gemini based on session state."""
+    if get_ai_provider() == "eadp":
+        return _eadp_call(prompt, system_instruction, temperature, max_tokens, json_mode)
+    return _gemini_call_impl(prompt, system_instruction, temperature, max_tokens, json_mode)
 
 
 def generate_executive_summary(context):
@@ -363,7 +458,7 @@ Start with:
     )
 
 
-def generate_pos_neg_themes(messages_df, n_sample=1200):
+def generate_pos_neg_themes(messages_df, n_sample=1800):
     """AI-generated positive and negative coverage themes with notable quotes."""
     from utils.titles import get_title_config
     cfg = get_title_config()
@@ -375,20 +470,24 @@ def generate_pos_neg_themes(messages_df, n_sample=1200):
         return None
 
     sample = texts.sample(min(n_sample, len(texts)), random_state=42)
-    message_block = "\n---\n".join(t[:350] for t in sample.tolist())
+    message_block = "\n---\n".join(t[:400] for t in sample.tolist())
 
     prompt = f"""Analyze these community messages about {cfg['ai_context']} and identify coverage themes.
 
 Return a JSON object with two keys:
 
-"positive_themes": An array of 3-5 objects, each with:
+"positive_themes": An array of 5-7 objects, each with:
   - "theme": A concise theme name (e.g. "Skating Engine Improvements")
-  - "summary": One sentence summarizing the positive reception
-  - "quotes": Array of 3-5 verbatim quotes from the messages below that best represent this theme. Pick quotes that are specific and articulate. Include the quote text only.
+  - "summary": 2-3 sentences summarizing the positive reception — what specifically are people praising, why it matters, and how widespread the sentiment appears.
+  - "quotes": Array of 5-7 verbatim quotes from the messages below that best represent this theme. Pick quotes that are specific, articulate, and varied (not all saying the same thing). Include the quote text only.
+  - "estimated_pct": Estimated percentage of positive conversation this theme represents (should sum roughly to 100 across positive themes).
 
-"negative_themes": Same structure, 3-5 objects for critical/negative themes.
+"negative_themes": Same structure, 5-7 objects for critical/negative themes. Summaries should explain what the core complaint is, how it impacts the player experience, and any nuance in the feedback.
 
-Select quotes that are real, representative, and specific — not generic praise or complaints.
+Selection criteria:
+- Quotes must be real, representative, and specific — not generic praise or complaints.
+- Themes should be distinct with minimal overlap.
+- Order themes from most prevalent to least prevalent.
 
 COMMUNITY MESSAGES:
 {message_block}"""
@@ -398,7 +497,7 @@ COMMUNITY MESSAGES:
         "You are an expert community analyst. Return valid JSON only. "
         "Pull quotes verbatim from the provided messages.",
         temperature=0.3,
-        max_tokens=6000,
+        max_tokens=12000,
         json_mode=True,
     )
     if result is None:
@@ -409,7 +508,7 @@ COMMUNITY MESSAGES:
         return None
 
 
-def generate_conversation_drivers(messages_df, n_sample=1500):
+def generate_conversation_drivers(messages_df, n_sample=2000):
     """AI-generated Community Conversation Drivers report."""
     from utils.titles import get_title_config
     cfg = get_title_config()
@@ -428,7 +527,7 @@ def generate_conversation_drivers(messages_df, n_sample=1500):
         vc = messages_df["Network"].value_counts()
         net_counts = "\n".join(f"  {k}: {v:,}" for k, v in vc.items())
 
-    message_block = "\n---\n".join(t[:400] for t in sample.tolist())
+    message_block = "\n---\n".join(t[:500] for t in sample.tolist())
 
     prompt = f"""You are a senior community intelligence analyst writing a formal Community Conversation Drivers report for {cfg['publisher']} {cfg['full_name']} ({cfg['ai_context']}).
 
@@ -437,16 +536,20 @@ TOTAL MESSAGES ANALYZED: {total_messages:,}
 Platform breakdown:
 {net_counts}
 
-Below is a representative sample of {len(sample):,} community messages. Write a Community Conversation Drivers report.
+Below is a representative sample of {len(sample):,} community messages. Write a comprehensive Community Conversation Drivers report.
 
 REQUIREMENTS:
-1. Identify the top 5-8 conversation drivers, ranked by estimated share of total conversation volume.
+1. Identify the top 8-12 conversation drivers, ranked by estimated share of total conversation volume. Be granular — split large topics into distinct sub-drivers rather than lumping them together (e.g. separate "Goalie AI Issues" from "CPU Teammate AI" rather than combining into one "AI Issues" driver).
 2. For each driver, provide:
-   - A clear driver name as a heading
+   - A clear, specific driver name as a heading
    - An estimated comment count and percentage of total conversation (should sum roughly to the total)
-   - A "Key Takeaways" section with 4-6 bullet points — concise, insight-driven observations
-   - An "Expanded Summary" section with 2-4 paragraphs of analytical prose — go deep on what the data reveals, why it matters, and what patterns emerge. Professional, analytical tone. No marketing language. Be specific and grounded.
-3. End with a "Closing Synthesis" section that ties all drivers together.
+   - A "Key Takeaways" section with 5-8 bullet points — concise, insight-driven observations. Each bullet should surface a specific finding, not just restate the theme.
+   - An "Expanded Summary" section with 3-5 paragraphs of analytical prose — go deep on what the data reveals, why it matters, and what patterns emerge. Reference specific examples from the messages. Discuss the nuance — where does the community agree vs. disagree? What is the intensity of sentiment? Are there sub-groups with different views? Professional, analytical tone. No marketing language. Be specific and grounded.
+3. End with a "Closing Synthesis" section (3-4 paragraphs) that:
+   - Identifies the 2-3 biggest risks / issues the team should prioritize
+   - Highlights the 2-3 strongest positives to protect and amplify
+   - Notes any emerging trends or under-the-radar topics that could grow
+   - Provides a clear "bottom line" takeaway
 
 FORMAT (use this exact markdown structure):
 
@@ -476,7 +579,7 @@ Paragraph 2...
 ---
 
 ## Closing Synthesis
-[2-3 paragraphs tying everything together]
+[3-4 paragraphs tying everything together]
 
 COMMUNITY MESSAGES:
 {message_block}"""
@@ -485,9 +588,10 @@ COMMUNITY MESSAGES:
         prompt,
         "You are a senior community intelligence analyst who writes detailed, "
         "data-grounded reports for game publishers. Your writing is precise, analytical, "
-        "and avoids marketing fluff. Professional reports suitable for executive stakeholders.",
+        "and avoids marketing fluff. Professional reports suitable for executive stakeholders. "
+        "Be thorough — more detail and more drivers is always better than fewer.",
         temperature=0.4,
-        max_tokens=16000,
+        max_tokens=24000,
     )
 
 
@@ -643,8 +747,9 @@ def load_saved_topic_buckets():
 
 
 def detect_campaign_phases(post_df, profile_df=None, title_config=None):
-    """Use CSV spike analysis + Gemini with Google Search grounding to detect campaign phases.
+    """Use CSV spike analysis + AI to detect campaign phases.
 
+    When Gemini is the active provider, also uses Google Search grounding.
     Returns a list of dicts: [{"name": str, "start": str, "end": str, "confidence": str, "evidence": str}, ...]
     or None on failure.
     """
@@ -652,12 +757,13 @@ def detect_campaign_phases(post_df, profile_df=None, title_config=None):
     from utils.titles import get_title_config
 
     cfg = title_config or get_title_config()
-    client = get_gemini_client()
-    if client is None:
-        st.error("No Google API key found. Set GOOGLE_API_KEY in your .env file.")
-        return None
+    provider = get_ai_provider()
 
-    from google.genai import types
+    if provider == "gemini":
+        client = get_gemini_client()
+        if client is None:
+            st.error("No Google API key found. Set GOOGLE_API_KEY in your .env file.")
+            return None
 
     date_min = post_df["Date"].min().strftime("%Y-%m-%d")
     date_max = post_df["Date"].max().strftime("%Y-%m-%d")
@@ -712,32 +818,36 @@ def detect_campaign_phases(post_df, profile_df=None, title_config=None):
             kw_summary.append(f"  {row['date'].strftime('%Y-%m-%d')}: keywords found: {', '.join(row['keyword'])}")
     kw_block = "\n".join(kw_summary[:20]) if kw_summary else "  No campaign keywords found in post text."
 
-    # --- Phase 2: Gemini with Google Search grounding ---
+    # --- Phase 2: Google Search grounding (Gemini only) ---
     game_name = cfg["full_name"]
     publisher = cfg["publisher"]
 
-    search_prompt = (
-        f"Search the web for key marketing campaign dates for the video game "
-        f"{game_name} by {publisher}. I need the specific dates (month and day) for events like: "
-        f"cover reveal, gameplay trailer, announcement/reveal, beta or early access, "
-        f"launch/release date, and any other major marketing beats. "
-        f"The data I have spans {date_min} to {date_max}. "
-        f"Return the dates you find with sources."
-    )
-
     web_results = None
-    try:
-        search_response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=search_prompt,
-            config=types.GenerateContentConfig(
-                tools=[types.Tool(google_search=types.GoogleSearch())],
-                temperature=0.1,
-            ),
+    if provider == "gemini":
+        from google.genai import types
+
+        search_prompt = (
+            f"Search the web for key marketing campaign dates for the video game "
+            f"{game_name} by {publisher}. I need the specific dates (month and day) for events like: "
+            f"cover reveal, gameplay trailer, announcement/reveal, beta or early access, "
+            f"launch/release date, and any other major marketing beats. "
+            f"The data I have spans {date_min} to {date_max}. "
+            f"Return the dates you find with sources."
         )
-        web_results = search_response.text
-    except Exception as e:
-        web_results = f"(Web search unavailable: {e})"
+        try:
+            search_response = client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=search_prompt,
+                config=types.GenerateContentConfig(
+                    tools=[types.Tool(google_search=types.GoogleSearch())],
+                    temperature=0.1,
+                ),
+            )
+            web_results = search_response.text
+        except Exception as e:
+            web_results = f"(Web search unavailable: {e})"
+    else:
+        web_results = "(Web search not available with EA EADP provider — using CSV signals only)"
 
     # --- Phase 3: Gemini combines all signals to propose phases ---
     combined_prompt = f"""You are analyzing social media data for {game_name} by {publisher}.

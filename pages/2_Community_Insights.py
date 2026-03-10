@@ -263,7 +263,11 @@ with tab_topics:
                     st.session_state["ai_topic_buckets"] = new_buckets
                     st.rerun()
                 else:
-                    st.error("Could not discover topics. Check your Google API key.")
+                    from utils.ai_analysis import get_ai_provider as _get_prov2
+                    if _get_prov2() == "eadp":
+                        st.error("Could not discover topics. Check your EA VPN connection.")
+                    else:
+                        st.error("Could not discover topics. Check your Google API key.")
     else:
         st.info("Upload Affogata or Inbox data to see topic analysis.")
 
@@ -290,7 +294,11 @@ with tab_ai:
             if drivers_ready:
                 st.success("Conversation drivers ready")
             else:
-                st.caption("Requires Google API key — takes 20-40 seconds")
+                from utils.ai_analysis import get_ai_provider as _get_prov
+                if _get_prov() == "eadp":
+                    st.caption("Using EA EADP — takes 20-40 seconds")
+                else:
+                    st.caption("Requires Google API key — takes 20-40 seconds")
 
         if run_drivers:
             combined_for_drivers = combine_community_messages(aff_raw, inbox_raw)

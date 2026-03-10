@@ -585,7 +585,11 @@ with col_ai_status:
     if narrative_ready:
         st.success("Analysis ready")
     else:
-        st.caption("Requires Google API key — takes 10-20 seconds")
+        from utils.ai_analysis import get_ai_provider as _get_prov
+        if _get_prov() == "eadp":
+            st.caption("Using EA EADP — takes 10-20 seconds")
+        else:
+            st.caption("Requires Google API key — takes 10-20 seconds")
 
 if run_analysis:
     with st.spinner("Analyzing differences between periods..."):

@@ -4,7 +4,7 @@ import pandas as pd
 st.set_page_config(page_title="Ask the Data", layout="wide")
 
 from utils.sidebar import render_sidebar, require_data, apply_theme
-from utils.chatbot import get_gemini_client, build_data_context, stream_chat_response
+from utils.chatbot import get_gemini_client, get_ai_client, get_ai_provider, build_data_context, stream_chat_response
 from utils.processors import format_number
 from utils.theme import render_nav_header, render_powered_by
 
@@ -62,16 +62,27 @@ require_data()
 render_nav_header("Ask the Data", "Ask natural-language questions about your social and community data")
 st.markdown("")
 
-client = get_gemini_client()
+_provider = get_ai_provider()
+client = get_ai_client()
 
 if client is None:
-    st.warning(
-        "**Google API key not found.** To use the chatbot:\n\n"
-        "1. Go to [aistudio.google.com](https://aistudio.google.com) and sign in with a Google account\n"
-        "2. Click **Get API Key** and create a free key (no credit card required)\n"
-        "3. Add `GOOGLE_API_KEY=your_key_here` to your `.env` file\n"
-        "4. Restart the app"
-    )
+    if _provider == "eadp":
+        st.warning(
+            "**EADP Gateway API key not found.** To use the chatbot with EA EADP:\n\n"
+            "1. Log into the GenAI Gateway WebUI with your EA SSO\n"
+            "2. Go to **Settings** and generate an API key\n"
+            "3. Add `EADP_GATEWAY_API_KEY=your_key_here` to your `.env` file\n"
+            "4. Restart the app"
+        )
+    else:
+        st.warning(
+            "**Google API key not found.** To use the chatbot:\n\n"
+            "1. Go to [aistudio.google.com](https://aistudio.google.com) and sign in with a Google account\n"
+            "2. Click **Get API Key** and create a free key (no credit card required)\n"
+            "3. Add `GOOGLE_API_KEY=your_key_here` to your `.env` file\n"
+            "4. Restart the app\n\n"
+            "Or switch to **EA (EADP)** in the sidebar."
+        )
     st.stop()
 
 if "chat_messages" not in st.session_state:
@@ -131,15 +142,19 @@ if (
             )
         except Exception as e:
             error_msg = str(e)
-            if "API_KEY_INVALID" in error_msg:
-                st.error("Invalid Google API key. Check the key in your `.env` file (no extra spaces).")
-            elif "RESOURCE_EXHAUSTED" in error_msg or "RATE_LIMIT" in error_msg:
-                st.error(
-                    "Gemini quota exhausted. The free tier allows 15 requests/min and "
-                    "1,500/day. Wait a moment and try again, or check your quota at "
-                    "[ai.dev/rate-limit](https://ai.dev/rate-limit)."
-                )
+            if _provider == "gemini":
+                if "API_KEY_INVALID" in error_msg:
+                    st.error("Invalid Google API key. Check the key in your `.env` file (no extra spaces).")
+                elif "RESOURCE_EXHAUSTED" in error_msg or "RATE_LIMIT" in error_msg:
+                    st.error(
+                        "Gemini quota exhausted. The free tier allows 15 requests/min and "
+                        "1,500/day. Wait a moment and try again, or check your quota at "
+                        "[ai.dev/rate-limit](https://ai.dev/rate-limit)."
+                    )
+                else:
+                    st.error(f"Gemini error: {error_msg}")
             else:
-                st.error(f"Gemini error: {error_msg}")
+                st.error(f"EA EADP error: {error_msg}")
 
-render_powered_by("Powered by Gemini")
+_provider_label = "EA EADP" if _provider == "eadp" else "Gemini"
+render_powered_by(f"Powered by {_provider_label}")

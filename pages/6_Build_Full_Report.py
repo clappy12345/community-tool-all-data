@@ -59,17 +59,29 @@ with col_status:
     if report_ready:
         st.success("Report ready")
     else:
-        st.caption("Requires Google API key — generation takes 60-90 seconds")
+        from utils.ai_analysis import get_ai_provider as _get_provider
+        _prov = _get_provider()
+        if _prov == "eadp":
+            st.caption("Using EA EADP — generation takes 60-90 seconds")
+        else:
+            st.caption("Requires Google API key — generation takes 60-90 seconds")
 
 if generate:
     progress = st.progress(0, text="Building data context...")
     context = build_report_context()
+    errors = []
 
     progress.progress(10, text="Generating executive summary...")
-    st.session_state["full_report_exec"] = generate_executive_summary(context)
+    exec_result = generate_executive_summary(context)
+    st.session_state["full_report_exec"] = exec_result
+    if exec_result is None:
+        errors.append("Executive summary")
 
     progress.progress(30, text="Generating performance narrative...")
-    st.session_state["full_report_perf"] = generate_performance_report(context)
+    perf_result = generate_performance_report(context)
+    st.session_state["full_report_perf"] = perf_result
+    if perf_result is None:
+        errors.append("Performance narrative")
 
     if has_community:
         messages_df = combine_community_messages(aff, inbox)
@@ -86,8 +98,23 @@ if generate:
         st.session_state["full_report_themes"] = None
         st.session_state["full_report_drivers"] = None
 
-    progress.progress(100, text="Done!")
-    st.rerun()
+    if errors:
+        progress.progress(100, text="Completed with errors")
+        from utils.ai_analysis import get_ai_provider as _get_provider_err
+        if _get_provider_err() == "eadp":
+            st.error(
+                f"Failed to generate: {', '.join(errors)}. "
+                "Check your EA VPN connection and try again."
+            )
+        else:
+            st.error(
+                f"Failed to generate: {', '.join(errors)}. "
+                "This is usually caused by Gemini API rate limits on the free tier "
+                "(20 requests/day). Wait a minute and try again, or check your Google API key."
+            )
+    else:
+        progress.progress(100, text="Done!")
+        st.rerun()
 
 # ── Render Report ──────────────────────────────────────────────
 if report_ready:
@@ -119,8 +146,11 @@ if report_ready:
             st.markdown("### Positive Themes")
             themes_md += "### Positive Themes\n\n"
             for theme in pos_themes:
-                st.markdown(f"**{theme['theme']}** — {theme.get('summary', '')}")
-                themes_md += f"**{theme['theme']}** — {theme.get('summary', '')}\n\n"
+                pct = theme.get("estimated_pct", "")
+                pct_str = f" ({pct}% of positive conversation)" if pct else ""
+                st.markdown(f"**{theme['theme']}**{pct_str}")
+                st.markdown(theme.get('summary', ''))
+                themes_md += f"**{theme['theme']}**{pct_str}\n\n{theme.get('summary', '')}\n\n"
                 quotes = theme.get("quotes", [])
                 if quotes:
                     st.markdown("**Notable Quotes:**")
@@ -135,8 +165,11 @@ if report_ready:
             st.markdown("### Critical / Negative Themes")
             themes_md += "### Critical / Negative Themes\n\n"
             for theme in neg_themes:
-                st.markdown(f"**{theme['theme']}** — {theme.get('summary', '')}")
-                themes_md += f"**{theme['theme']}** — {theme.get('summary', '')}\n\n"
+                pct = theme.get("estimated_pct", "")
+                pct_str = f" ({pct}% of negative conversation)" if pct else ""
+                st.markdown(f"**{theme['theme']}**{pct_str}")
+                st.markdown(theme.get('summary', ''))
+                themes_md += f"**{theme['theme']}**{pct_str}\n\n{theme.get('summary', '')}\n\n"
                 quotes = theme.get("quotes", [])
                 if quotes:
                     st.markdown("**Notable Quotes:**")

@@ -18,6 +18,10 @@ DATA CONTEXT:
 {data_context}"""
 
 
+def get_ai_provider() -> str:
+    return st.session_state.get("ai_provider", "gemini")
+
+
 def get_gemini_client():
     api_key = os.getenv("GOOGLE_API_KEY", "").strip() or os.getenv("GEMINI_API_KEY", "").strip()
     if not api_key:
@@ -33,6 +37,18 @@ def get_gemini_client():
     from google import genai
 
     return genai.Client(api_key=api_key)
+
+
+def get_eadp_client():
+    from utils.ai_analysis import get_eadp_client as _get_eadp
+    return _get_eadp()
+
+
+def get_ai_client():
+    """Return the appropriate AI client based on the active provider."""
+    if get_ai_provider() == "eadp":
+        return get_eadp_client()
+    return get_gemini_client()
 
 
 def build_data_context():
@@ -176,15 +192,8 @@ def build_data_context():
     return "\n\n".join(sections)
 
 
-def stream_chat_response(client, messages, data_context):
+def _stream_gemini(client, messages, system):
     from google.genai import types
-    from utils.titles import get_title_config
-
-    cfg = get_title_config()
-    system = SYSTEM_INSTRUCTION.format(
-        chatbot_role=cfg["chatbot_role"],
-        data_context=data_context,
-    )
 
     contents = []
     for msg in messages:
@@ -205,3 +214,51 @@ def stream_chat_response(client, messages, data_context):
     for chunk in response:
         if chunk.text:
             yield chunk.text
+
+
+def _stream_eadp(client, messages, system):
+    from utils.ai_analysis import EADP_MODELS
+
+    oai_messages = [{"role": "system", "content": system}]
+    for msg in messages:
+        oai_messages.append({"role": msg["role"], "content": msg["content"]})
+
+    last_error = None
+    for model in EADP_MODELS:
+        try:
+            response = client.chat.completions.create(
+                model=model,
+                messages=oai_messages,
+                temperature=0.3,
+                max_tokens=4000,
+                stream=True,
+            )
+            for chunk in response:
+                delta = chunk.choices[0].delta.content
+                if delta:
+                    yield delta
+            return
+        except Exception as e:
+            last_error = e
+            if "not found" in str(e).lower():
+                continue
+            raise
+
+    raise RuntimeError(
+        f"No EADP models are currently available. Last error: {last_error}"
+    )
+
+
+def stream_chat_response(client, messages, data_context):
+    from utils.titles import get_title_config
+
+    cfg = get_title_config()
+    system = SYSTEM_INSTRUCTION.format(
+        chatbot_role=cfg["chatbot_role"],
+        data_context=data_context,
+    )
+
+    if get_ai_provider() == "eadp":
+        yield from _stream_eadp(client, messages, system)
+    else:
+        yield from _stream_gemini(client, messages, system)
